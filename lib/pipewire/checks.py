@@ -62,7 +62,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
-from lib.pipewire import session, vbe
+from lib.pipewire import port_hook, session, vbe
 from lib.pipewire.plugins import (
     CALF_BE_URI,
     CALF_ST_URI,
@@ -153,6 +153,7 @@ class LiveChain:
     smart: bool = False
     target: str = ""
     pinned: str = ""
+    port_hook: bool = False  # the live node carries port_hook.MARKER
 
 
 @dataclass
@@ -371,6 +372,7 @@ def live_chains(dump) -> list[LiveChain]:
         if half == "input":
             chain.smart = bool(props.get("filter.smart"))
             chain.target = _target_node_name(props.get("filter.smart.target"))
+            chain.port_hook = props.get(port_hook.MARKER) in (True, "true")
         else:
             chain.pinned = props.get("target.object", "") or ""
     return list(chains.values())
@@ -1090,6 +1092,126 @@ def check_wireplumber(version: session.Version) -> CheckResult:
                        f"{version.text} — smart-filter routing supported.")
 
 
+def _filter_disabled(dump, node_name: str) -> bool:
+    """Whether the ``filters`` metadata carries ``filter.smart.disabled`` for
+    the node called ``node_name``: WirePlumber's runtime bypass, which the
+    speaker-port hook sets."""
+    node_id = next((obj.get("id") for obj in dump or []
+                    if str(obj.get("type", "")).endswith("Node")
+                    and hw_sinks._info_section(obj, "props").get("node.name")
+                    == node_name), None)
+    for obj in dump or []:
+        if not str(obj.get("type", "")).endswith("Metadata"):
+            continue
+        props = obj.get("props") or hw_sinks._info_section(obj, "props")
+        if props.get("metadata.name") != "filters":
+            continue
+        for entry in obj.get("metadata") or []:
+            if (entry.get("subject") == node_id
+                    and entry.get("key") == "filter.smart.disabled"):
+                return entry.get("value") in (True, "true")
+    return False
+
+
+def check_speaker_port(chains, confs, dump, defaults: DefaultSink,
+                       hook_installed: bool) -> CheckResult | None:
+    """A smart filter whose target sink has a speaker port and another one.
+
+    Speakers and a headphone jack as two ports of one sink (issue #73): the
+    filter can't tell them apart, and only the hook in
+    ``lib.pipewire.port_hook`` takes it out of the path on headphones. Silent
+    where the target has no second port, the usual case of a card whose
+    profile gives the speakers their own sink.
+
+    Judged from the graph first: the marker on the live node and the bypass
+    in the metadata hold for a system-wide install too, whose hook files
+    ``hook_installed`` never sees. It looks in the per-user places only."""
+    if dump is None:
+        return None
+    by_name = {s["name"]: s for s in hw_sinks.sinks_from_dump(dump)}
+    for chain in chains:
+        sink = by_name.get(chain.target) if chain.smart else None
+        others = hw_sinks.non_speaker_ports(sink) if sink else []
+        if not others:
+            continue
+        node = f"effect_input.{chain.name}"
+        names = ", ".join(p["description"] or p["name"] for p in others)
+        active = next((p for p in sink["ports"]
+                       if p["name"] == sink["active_port"]), None)
+        off_speaker = active is not None and active in others
+        port = (active["description"] or active["name"]) if active else ""
+        bypassed = _filter_disabled(dump, node)
+        if not chain.port_hook:
+            if any(c.node_name == node and port_hook.MARKER in _conf_text(c.path)
+                   for c in confs):
+                return CheckResult(
+                    DOCTOR_WARN, "Speaker port",
+                    f"{chain.name} was installed again since PipeWire last "
+                    "started, and the running copy is the older one, which "
+                    f"also plays the speaker tuning on: {names}. Restart "
+                    "PipeWire to load the new one:",
+                    steps=(("cta", PIPEWIRE_RESTART_CMD),))
+            return CheckResult(
+                DOCTOR_WARN, "Speaker port",
+                f"Your speakers share their output with: {names}. "
+                f"{chain.name} can't tell them apart, so the speaker tuning "
+                f"plays there too. Run {invocation.script('dolby_to_pipewire.py')} "
+                "on your tuning file again with --force: it adds a small "
+                "WirePlumber script that switches the tuning off while the "
+                "speakers aren't the active output. (Ignore this if you "
+                "installed with that script turned off on purpose.)")
+        if off_speaker and bypassed:
+            return CheckResult(
+                DOCTOR_PASS, "Speaker port",
+                f"{port} is the active output right now, so {chain.name} is "
+                "switched off until the speakers take over again.")
+        if off_speaker and defaults.effective == node:
+            # The hook leaves such a filter on: bypassed, it would play
+            # nothing. "Default output" below carries the fix.
+            return CheckResult(
+                DOCTOR_WARN, "Speaker port",
+                f"{port} is the active output and {chain.name} still plays "
+                "its speaker tuning there, because it is your selected "
+                "output: switched off, it would play nothing. The Default "
+                "output fix below puts that right.")
+        if off_speaker:
+            why = ("The script that switches it off is installed but hasn't "
+                   "acted. Restart PipeWire so WirePlumber loads it, then "
+                   f"run {invocation.script('dolby_to_pipewire.py')} --doctor "
+                   "again:"
+                   if hook_installed else
+                   "The script that switches it off isn't in your "
+                   "WirePlumber folders. Run "
+                   f"{invocation.script('dolby_to_pipewire.py')} on your "
+                   "tuning file again with --force, then restart PipeWire:")
+            return CheckResult(
+                DOCTOR_WARN, "Speaker port",
+                f"{port} is the active output and {chain.name} still plays "
+                f"its speaker tuning there. {why}",
+                steps=(("cta", PIPEWIRE_RESTART_CMD),))
+        if bypassed:
+            return CheckResult(
+                DOCTOR_WARN, "Speaker port",
+                f"{chain.name} is switched off although the speakers are the "
+                "active output, so audio plays untreated. Restarting "
+                "PipeWire starts it afresh:",
+                steps=(("cta", PIPEWIRE_RESTART_CMD),))
+        if not hook_installed:
+            # Not a WARN: a hook installed system-wide is as good, and is
+            # not looked for.
+            return CheckResult(
+                DOCTOR_UNKNOWN, "Speaker port",
+                f"{chain.name} relies on a WirePlumber script to switch it "
+                f"off on: {names}. The script isn't in your own WirePlumber "
+                "folders, and a system-wide one isn't looked for, so "
+                "whether it is loaded wasn't checked.")
+        return CheckResult(
+            DOCTOR_PASS, "Speaker port",
+            f"{chain.name} plays on the speakers, and is switched off "
+            f"while the active output is: {names}.")
+    return None
+
+
 def check_easyeffects_conflict(sinks, chains, dump) -> CheckResult | None:
     """EasyEffects processing the same audio as the chain.
 
@@ -1389,6 +1511,8 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_plugins_present(plugin_probe, confs),
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
+        check_speaker_port(chains, confs, dump, defaults,
+                           port_hook.installed()),
         # After the target check, so the block reads in the order a reader
         # debugs in: does the chain exist → did it load → are its files there →
         # is its target there → is it, or should it be, the selected output.

@@ -2552,3 +2552,126 @@ def test_an_unanswered_probe_is_asked_again(monkeypatch):
     assert session.lv2_loader().present is True
     assert session.lv2_loader().present is True
     assert len(calls) == 2
+
+
+# --- Speaker port (issue #73) -----------------------------------------------
+#
+# Speakers and the headphone jack as two ports of one sink. The filter targets
+# the sink, so only the WirePlumber hook takes it out of the path on headphones.
+
+SHARED = "alsa_output.pci-0000_00_1f.3.analog-stereo"
+
+
+def _port_route(name, description, port_type):
+    return {"direction": "Output", "name": name, "description": description,
+            "available": "unknown", "device": 7, "devices": [7],
+            "info": [1, "port.type", port_type]}
+
+
+def _shared_card(active="speaker", headphones=True, disabled=False,
+                 marked=True):
+    """A live smart chain on a sink with a speaker and a headphone port."""
+    speaker = _port_route("analog-output-speaker", "Speakers", "speaker")
+    phones = _port_route("analog-output-headphones", "Headphones", "headphones")
+    chain = _smart_chain("Dolby", target=SHARED)
+    chain[0]["id"] = 49
+    if marked:
+        chain[0]["info"]["props"]["speaker-tuning.speaker-port-only"] = True
+    dump = chain + [
+        _node(SHARED, **{"media.class": "Audio/Sink", "device.id": 64,
+                         "card.profile.device": 7}),
+        {"type": "PipeWire:Interface:Device", "id": 64, "info": {"params": {
+            "Route": [speaker if active == "speaker" else phones],
+            "EnumRoute": [speaker] + ([phones] if headphones else [])}}},
+    ]
+    if disabled:
+        dump.append({"type": "PipeWire:Interface:Metadata",
+                     "props": {"metadata.name": "filters"},
+                     "metadata": [{"subject": 49, "type": "Spa:String:JSON",
+                                   "key": "filter.smart.disabled",
+                                   "value": True}]})
+    return dump
+
+
+def _port_check(dump, *, installed=True, confs=(), selected=""):
+    return checks.check_speaker_port(
+        checks.live_chains(dump), list(confs), dump,
+        checks.DefaultSink(effective=selected), installed)
+
+
+def test_speaker_port_is_silent_on_a_speaker_only_sink():
+    assert _port_check(_shared_card(headphones=False, marked=False),
+                       installed=False) is None
+
+
+def test_speaker_port_is_silent_without_a_speaker_typed_port():
+    """A sink whose only port is the generic analog one gives nothing to
+    tell the speakers by: no check, as there is no hook."""
+    dump = _shared_card(marked=False)
+    device = next(o for o in dump if o["type"].endswith("Device"))
+    for route in (device["info"]["params"]["Route"]
+                  + device["info"]["params"]["EnumRoute"]):
+        route["info"] = [1, "port.type", "analog"]
+    assert _port_check(dump) is None
+
+
+def test_speaker_port_warns_when_the_chain_does_not_ask_for_the_hook():
+    result = _port_check(_shared_card(marked=False))
+    assert result.status == checks.DOCTOR_WARN
+    assert "Headphones" in result.detail and "--force" in result.detail
+    assert "dolby_to_pipewire" in result.detail
+
+
+def test_speaker_port_asks_for_a_restart_when_the_new_conf_is_not_loaded(tmp_path):
+    """Installed again with the hook, PipeWire not restarted yet: the conf on
+    disk asks for it and the running chain predates it."""
+    path = tmp_path / "Dolby.conf"
+    path.write_text("speaker-tuning.speaker-port-only = true\n")
+    conf = checks.InstalledConf(path=path, node_name="effect_input.Dolby")
+    result = _port_check(_shared_card(marked=False), confs=[conf])
+    assert result.status == checks.DOCTOR_WARN
+    assert "--force" not in result.detail
+    assert result.steps == (("cta", checks.PIPEWIRE_RESTART_CMD),)
+
+
+def test_speaker_port_passes_with_the_hook_on_speakers():
+    result = _port_check(_shared_card())
+    assert result.status == checks.DOCTOR_PASS
+    assert "plays on the speakers" in result.detail
+
+
+def test_speaker_port_does_not_judge_a_hook_it_cannot_see():
+    """A system-wide install: the marker is live, the files aren't ours to
+    find, and on the speaker port nothing shows whether the hook is loaded."""
+    result = _port_check(_shared_card(), installed=False)
+    assert result.status == checks.DOCTOR_UNKNOWN
+
+
+def test_speaker_port_passes_on_a_bypass_whoever_installed_the_hook():
+    for installed in (True, False):
+        result = _port_check(_shared_card(active="headphones", disabled=True),
+                             installed=installed)
+        assert result.status == checks.DOCTOR_PASS
+        assert "Headphones is the active output right now" in result.detail
+
+
+def test_speaker_port_explains_a_selected_chain_left_on():
+    """The hook leaves a filter on when it is the selected output, so a
+    restart would change nothing and isn't offered."""
+    result = _port_check(_shared_card(active="headphones"),
+                         selected="effect_input.Dolby")
+    assert result.status == checks.DOCTOR_WARN
+    assert "selected output" in result.detail
+    assert result.steps == ()
+
+
+def test_speaker_port_warns_when_the_hook_has_not_acted():
+    result = _port_check(_shared_card(active="headphones"))
+    assert result.status == checks.DOCTOR_WARN
+    assert result.steps == (("cta", checks.PIPEWIRE_RESTART_CMD),)
+
+
+def test_speaker_port_warns_when_bypassed_on_speakers():
+    result = _port_check(_shared_card(disabled=True))
+    assert result.status == checks.DOCTOR_WARN
+    assert "untreated" in result.detail

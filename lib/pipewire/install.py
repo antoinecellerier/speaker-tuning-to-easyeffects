@@ -41,7 +41,7 @@ from pathlib import Path
 
 from lib import console, doctor, packages, tool_env
 from lib.hardware import sinks
-from lib.pipewire import checks, session
+from lib.pipewire import checks, port_hook, session
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 
@@ -153,6 +153,31 @@ def _print_results(conf_path: Path, irs_path: Path | None,
         if irs_path is not None:
             console.cprint("ok", "Copied impulse response (.irs): "
                            f"{doctor.tilde(irs_path)}")
+
+
+def _print_port_hook(paths: tuple[Path, Path], *, staged: bool,
+                     dry_run: bool) -> None:
+    """Report the WirePlumber hook's two files beside `_print_results`.
+
+    ``staged`` is a conf written to a folder of the reader's own: the files
+    sit under it and load from nowhere, so the line names where WirePlumber
+    reads them from."""
+    verb = "Would write" if dry_run else "Wrote"
+    for label, path in zip(("WirePlumber hook script", "WirePlumber hook "
+                            "config"), paths):
+        console.cprint("ok", f"{verb} {label}: {doctor.tilde(path)}")
+    if staged:
+        # Lines of its own, not an aside: beside the conf nothing loads
+        # these, and a reader who skips the copy gets no bypass.
+        live = port_hook.paths()
+        console._cprint_wrapped(
+            "warn", "Those two WirePlumber files are not installed yet: "
+            "nothing loads them from beside the conf. Before restarting "
+            "PipeWire, copy them where WirePlumber reads them, here or in "
+            "the same folders under a system WirePlumber directory:",
+            indent="  ")
+        console.cprint("warn", f"  the script → {doctor.tilde(live[0].parent)}/")
+        console.cprint("warn", f"  the config → {doctor.tilde(live[1].parent)}/")
 
 
 def _grep_expectation(tail: str = "") -> str:

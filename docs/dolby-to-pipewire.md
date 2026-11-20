@@ -283,6 +283,13 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--target-sink NODE_NAME` — hardware sink the filter attaches to as a
   WirePlumber smart filter (default: auto-detect the internal-speaker sink).
   `''` disables smart-filter routing.
+- `--speaker-port-hook {auto,on,off}` — also install a WirePlumber hook that
+  bypasses the filter while the target sink's active port is not a speaker
+  port, for a headphone jack that shares one sink with the speakers (default:
+  `auto`, which installs it when the target sink has a speaker port and another
+  output port). `on`
+  installs it without looking, for a conf built away from the machine it will
+  run on.
 - `--target-object NODE_NAME` — bind the chain's playback to a specific
   downstream node instead of letting WirePlumber choose. Set automatically when
   installing more than one sink.
@@ -349,6 +356,10 @@ and `dolby_to_pipewire.py` runs it for you.
   WirePlumber smart filter (default: auto-detect the internal-speaker sink with
   the same probe as `--autoload`). Pass an empty string, `''`, to disable
   smart-filter routing and emit a v1 virtual sink that apps target directly.
+- `--speaker-port-hook {auto,on,off}` — also install a WirePlumber hook that
+  bypasses the filter while the target sink's active port is not a speaker
+  port (default: `auto`). See
+  [Headphones on the speakers' sink](ee-to-pipewire.md#headphones-on-the-speakers-sink).
 
 **Output**
 - `--output PATH` — output `.conf` path (default:

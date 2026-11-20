@@ -102,6 +102,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- The PipeWire filter is bypassed on headphones that share one sink with the
+  speakers, through a WirePlumber hook installed when the target sink has such
+  a port. `--speaker-port-hook off` skips it; `--speaker-info` and `--doctor`
+  now list each sink's ports
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
 - `--doctor` shows the output's volume and mute in both modes, and warns
   when that output is muted. A muted PipeWire chain fails "Chain volume", and
   the PipeWire install says when a chain comes up muted or turned down

@@ -396,6 +396,9 @@ PipeWire route's in `lib/pipewire/uninstall.py`.
 - **Conf:** it starts with `CONF_HEADER_MARK`. Its impulse is removed only as
   the `<conf dir>/<node>.irs` or `<conf dir>/<conf stem>.irs` copy, and only
   when no other conf names it.
+- **Speaker-port hook:** the WirePlumber script and fragment are removed when
+  their first line carries the tool's mark and no conf that stays carries
+  `speaker-tuning.speaker-port-only`.
 
 The steps run in this order: switch a running EasyEffects to an empty preset,
 then the rc edit, autoload entries, presets and impulses. A failed rc edit stops

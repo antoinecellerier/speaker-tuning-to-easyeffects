@@ -23,7 +23,7 @@ import subprocess
 from pathlib import Path
 
 from lib import console, doctor, ee_socket, tool_env, uninstall
-from lib.pipewire import checks, install
+from lib.pipewire import checks, install, port_hook
 from lib.pipewire import conf as pw_conf
 from lib.uninstall import Plan, Step
 
@@ -88,9 +88,38 @@ def plan(output_dir: Path | None) -> Plan:
                 result.left.append((other, (
                     f"named by {c.path.name}, but not a copy this tool made "
                     "beside it")))
-    result.steps = confs + copies
+    result.steps = confs + copies + _hook_steps(output_dir, removing)
     result.where = where(output_dir)
     return result
+
+
+def _marked_confs(dirs, exclude=()) -> list[Path]:
+    """Our confs in ``dirs`` that rely on the speaker-port hook."""
+    skip = {Path(p).resolve() for p in exclude}
+    return [p for p in checks.generated_conf_paths(*dirs)
+            if p.resolve() not in skip
+            and port_hook.MARKER in checks._conf_text(p)]
+
+
+def _hook_steps(output_dir: Path | None, removing) -> list[Step]:
+    """The speaker-port hook's two files, once no conf that stays uses them.
+
+    One hook serves every chain installed beside it, so it goes with the
+    last of them. Which pair is decided as the install decides it
+    (``ee_to_pipewire.py``): a conf in a directory PipeWire reads has the
+    per-user pair, whichever flag named that directory, and a folder of the
+    reader's own has the pair staged under it."""
+    dirs = _dirs(output_dir)
+    live = {d.expanduser().resolve() for d in checks.live_conf_dirs()}
+    is_live = output_dir is None or dirs[0] in live
+    scan = checks.live_conf_dirs() if is_live else dirs
+    if _marked_confs(scan, exclude=removing):
+        return []
+    staging = None if is_live else dirs[0]
+    return [Step("Speaker-port hook (WirePlumber files)", path,
+                 recheck=lambda p=path: port_hook.is_ours(p)
+                 and not _marked_confs(scan))
+            for path in port_hook.paths(staging) if port_hook.is_ours(path)]
 
 
 def touches_filter_chain_service(p: Plan) -> bool:

@@ -817,6 +817,7 @@ def _gather_speaker_info() -> speakers.SpeakerInfo:
                     k, v = line.split(": ", 1)
                     fields[k.strip()] = v.strip()
             info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
+    info.output_ports = sinks.output_port_lines()
 
     # Speaker detection — branch by bus type, unless a demo machine stands in
     if not (speakers._maybe_demo_hidden_speaker_pin(info)
@@ -1110,6 +1111,13 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
     # PCM playback devices
     sections.append(("PCM playback devices",
                       [f"  pcm{dev}p: {name}" for dev, name in info.pcm_devices]))
+
+    # Absent with no PipeWire session, rather than "(none)": every other
+    # section here is the kernel's, and this one can't be read from a root
+    # or ssh shell that the rest works from.
+    if info.output_ports:
+        sections.append(("Output ports (PipeWire; * is active)",
+                         info.output_ports))
 
     # Merged, bus-agnostic amplifier status: per-amp bind/channels/runtime, the
     # #17 TI firmware gate, driver-keyed firmware presence, and kernel-log

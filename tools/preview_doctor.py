@@ -34,7 +34,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from lib import doctor, ee_autostart, ee_paths, ee_socket  # noqa: E402
 from lib.hardware import sinks                         # noqa: E402
-from lib.pipewire import checks, session               # noqa: E402
+from lib.pipewire import checks, port_hook, session    # noqa: E402
 from lib.preset import autoload                        # noqa: E402
 from lib.report import doctor_run                      # noqa: E402
 
@@ -420,6 +420,30 @@ PW_SCENARIOS: dict[str, dict] = {
         "default": _PW_SPEAKER,
         "levels": {"effect_input.Dolby_Balanced": (1.0, True)},
     },
+    # ``port`` gives the speaker sink a headphone port as well and says which
+    # is active; ``hook`` is the speaker-port hook installed with the chain,
+    # ``bypassed`` what it wrote to the filters metadata (issue #73).
+    "pw-headphones-no-hook": {
+        "why": "the headphone jack shares the speakers' sink, and the chain "
+               "was installed without the speaker-port hook (issue #73)",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": _PW_SPEAKER,
+        "port": "speaker",
+    },
+    "pw-headphones-bypassed": {
+        "why": "the same shared sink with the hook installed, headphones "
+               "plugged in and the chain bypassed — healthy",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": _PW_SPEAKER,
+        "port": "headphones", "hook": True, "bypassed": True,
+    },
+    "pw-headphones-hook-idle": {
+        "why": "the same shared sink with the hook's files installed, "
+               "headphones plugged in, but the chain still in the path",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": _PW_SPEAKER,
+        "port": "headphones", "hook": True,
+    },
 }
 
 
@@ -454,11 +478,28 @@ def _pw_dump(spec: dict) -> list:
             obj["info"]["params"] = {"Props": [
                 {"channelVolumes": [linear, linear], "mute": mute}]}
         return obj
-    dump = [node(_PW_SPEAKER, **{"media.class": "Audio/Sink",
-                                 "node.description": "Built-in Audio Speaker"}),
+    speaker_props = {"media.class": "Audio/Sink",
+                     "node.description": "Built-in Audio Speaker"}
+    card = []
+    if spec.get("port"):
+        def route(name, description, port_type):
+            return {"direction": "Output", "name": name, "device": 7,
+                    "description": description, "devices": [7],
+                    "available": "yes" if port_type == spec["port"] else "no",
+                    "info": [1, "port.type", port_type]}
+        routes = {"speaker": route("analog-output-speaker", "Speakers",
+                                   "speaker"),
+                  "headphones": route("analog-output-headphones",
+                                      "Headphones", "headphones")}
+        speaker_props.update({"device.id": 64, "card.profile.device": 7})
+        card = [{"type": "PipeWire:Interface:Device", "id": 64,
+                 "info": {"params": {"Route": [routes[spec["port"]]],
+                                     "EnumRoute": list(routes.values())}}}]
+    dump = [node(_PW_SPEAKER, **speaker_props), *card,
             {"type": "PipeWire:Interface:Client",
              "info": {"props": {"wireplumber.daemon": True,
                                 "application.version": "0.5.18"}}}]
+    bypassed: list[int] = []
     for name, mode in spec["chains"]:
         capture = {"media.class": "Audio/Sink"}
         playback = {"node.passive": True}
@@ -467,11 +508,16 @@ def _pw_dump(spec: dict) -> list:
                             "node.link-group": f"{name}_smart_filter",
                             "filter.smart.target":
                                 f'{{ node.name = "{_PW_SPEAKER}" }}'})
+            if spec.get("hook"):
+                capture[port_hook.MARKER] = True
             playback["node.link-group"] = f"{name}_smart_filter"
         elif mode == "pinned":
             playback["target.object"] = _PW_SPEAKER
-        dump += [node(f"effect_input.{name}", **capture),
-                 node(f"effect_output.{name}", **playback)]
+        chain_in = node(f"effect_input.{name}", **capture)
+        chain_in["id"] = 100 + len(dump)
+        if spec.get("bypassed"):
+            bypassed.append(chain_in["id"])
+        dump += [chain_in, node(f"effect_output.{name}", **playback)]
     entries = [{"subject": 0, "key": key, "type": "Spa:String:JSON",
                 "value": {"name": value}}
                for key, value in (
@@ -480,6 +526,11 @@ def _pw_dump(spec: dict) -> list:
                     spec.get("configured", spec["default"])))]
     dump.append({"type": "PipeWire:Interface:Metadata",
                  "props": {"metadata.name": "default"}, "metadata": entries})
+    dump.append({"type": "PipeWire:Interface:Metadata",
+                 "props": {"metadata.name": "filters"},
+                 "metadata": [{"subject": node_id, "type": "Spa:String:JSON",
+                               "key": "filter.smart.disabled", "value": True}
+                              for node_id in bypassed]})
     return dump
 
 
@@ -494,7 +545,8 @@ def _pw_scenario(slug: str):
     spec = PW_SCENARIOS[slug]
     saved = (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
              checks._UNSCANNED_CONF_DIR, doctor.tilde,
-             session.read_settings, session.read_xruns, session.process_age)
+             session.read_settings, session.read_xruns, session.process_age,
+             port_hook.installed, sinks.output_port_lines)
     real_dir, real_tilde = checks.DEFAULT_OUTPUT_DIR, doctor.tilde
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp)
@@ -525,12 +577,19 @@ def _pw_scenario(slug: str):
                 window_s=5.0, playing=True, sink_is_driver=True,
                 running_quantum=1024, running_rate=48000)
             session.process_age = lambda name: 3 * 3600.0
+            # The capture machine's own WirePlumber folders say nothing
+            # about the scenario's.
+            port_hook.installed = lambda staging=None: bool(spec.get("hook"))
+            # The hardware block's port listing reads its own pw-dump.
+            sinks.output_port_lines = lambda: sinks.port_lines(
+                sinks.sinks_from_dump(dump))
             yield
         finally:
             (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
              checks._UNSCANNED_CONF_DIR, doctor.tilde,
              session.read_settings, session.read_xruns,
-             session.process_age) = saved
+             session.process_age, port_hook.installed,
+             sinks.output_port_lines) = saved
 
 
 def render_pw(slug: str) -> None:

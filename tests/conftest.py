@@ -223,6 +223,9 @@ def no_live_machine(request, monkeypatch, _empty_host_root):
     # scan its autostart entries and session startup files. Constants derived
     # from it at import time keep their value in-process.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(_empty_host_root / "config-home"))
+    # So is their data directory: --uninstall looks there for the WirePlumber
+    # hook script a real install on this machine may have left.
+    monkeypatch.setenv("XDG_DATA_HOME", str(_empty_host_root / "data-home"))
     monkeypatch.delenv("XDG_CONFIG_DIRS", raising=False)
     # Which desktop this is decides which startup files count.
     monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)

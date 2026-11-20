@@ -197,6 +197,9 @@ class SpeakerInfo:
     soundwire_devices: list[tuple[str, str]] = field(default_factory=list)
     pci_subsystem: tuple[str, str] | None = None
     pcm_devices: list[tuple[str, str]] = field(default_factory=list)
+    # `sinks.port_lines`: what PipeWire offers on each sink, the one part
+    # of this report that isn't read from the kernel.
+    output_ports: list[str] = field(default_factory=list)
     # SoundWire-specific
     sdw_codecs: list[str] = field(default_factory=list)
     sdw_amplifiers: list[str] = field(default_factory=list)

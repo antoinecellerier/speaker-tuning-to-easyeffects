@@ -1059,3 +1059,63 @@ def test_every_prompt_shares_one_tty_rule():
                  for p in [*sorted((root / "lib").rglob("*.py")), *root.glob("*.py")]
                  if p.name != "console.py" and "isatty(" in p.read_text()]
     assert offenders == []
+
+
+# --- Speaker-port hook (issue #73) ------------------------------------------
+
+def _marked_conf(d: Path, name: str) -> Path:
+    from lib.pipewire import port_hook
+    path = _conf(d, name)
+    path.write_text(path.read_text() + f"{port_hook.MARKER} = true\n")
+    return path
+
+
+def test_pw_removes_the_staged_hook_with_its_last_conf(tree, tmp_path):
+    from lib.pipewire import port_hook
+    out = tmp_path / "staged"
+    conf = _marked_conf(out, "Dolby_Balanced")
+    hook = set(port_hook.write(out))
+    assert _planned(pw_uninstall.plan(out)) == {conf} | hook
+
+
+def test_pw_removes_the_live_hook_from_the_xdg_homes(tree, tmp_path, monkeypatch):
+    from lib.pipewire import port_hook
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    conf = _marked_conf(tmp_path / "pw", "Dolby_Balanced")
+    hook = set(port_hook.write())
+    assert _planned(pw_uninstall.plan(None)) == {conf} | hook
+
+
+def test_pw_leaves_a_foreign_file_in_the_hooks_place(tree, tmp_path):
+    from lib.pipewire import port_hook
+    out = tmp_path / "staged"
+    conf = _marked_conf(out, "Dolby_Balanced")
+    script, fragment = port_hook.paths(out)
+    for p in (script, fragment):
+        p.parent.mkdir(parents=True)
+        p.write_text("mine\n")
+    assert _planned(pw_uninstall.plan(out)) == {conf}
+
+
+def test_pw_removes_the_live_hook_when_output_dir_names_a_live_folder(
+        tree, tmp_path, monkeypatch):
+    """A conf in a folder PipeWire reads has the per-user hook, whichever
+    flag named the folder: the uninstall must look where the install wrote."""
+    from lib.pipewire import port_hook
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    conf = _marked_conf(tmp_path / "pw_fc", "Dolby_Balanced")
+    hook = set(port_hook.write())
+    assert _planned(pw_uninstall.plan(tmp_path / "pw_fc")) == {conf} | hook
+
+
+def test_pw_keeps_the_live_hook_for_a_chain_in_the_other_live_folder(
+        tree, tmp_path, monkeypatch):
+    from lib.pipewire import port_hook
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    conf = _marked_conf(tmp_path / "pw_fc", "Dolby_Balanced")
+    _marked_conf(tmp_path / "pw", "Dolby_Warm")
+    port_hook.write()
+    assert _planned(pw_uninstall.plan(tmp_path / "pw_fc")) == {conf}

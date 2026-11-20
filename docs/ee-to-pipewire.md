@@ -200,6 +200,55 @@ non-standard policy. Separately, `--target-object <node.name>` binds the chain's
 That is a measurement-route override, for example onto a null sink; end users
 want `--target-sink`.
 
+### Headphones on the speakers' sink
+
+On some sound cards the speakers and the headphone jack are two ports of one
+sink, as on the Framework Laptop 13 Pro in issue
+[#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73):
+an `…analog-stereo` sink whose active port switches between
+`analog-output-speaker` and `analog-output-headphones`. `filter.smart.target`
+matches node properties only, and the node is the same on either port, so the
+smart filter alone would keep processing on headphones. Upstream has no
+setting for this:
+[WirePlumber issue 803](https://gitlab.freedesktop.org/pipewire/wireplumber/-/work_items/803)
+and
+[PipeWire issue 4763](https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/4763).
+
+For such a sink the converter also installs a WirePlumber hook: a Lua script
+under `~/.local/share/wireplumber/scripts/` and the fragment that loads it
+under `~/.config/wireplumber/wireplumber.conf.d/`, or under `$XDG_DATA_HOME`
+and `$XDG_CONFIG_HOME` if set. The hook reads the target sink's active route.
+While that route's `port.type` is anything but `speaker`, it sets
+`filter.smart.disabled` on the filter in WirePlumber's `filters` metadata, and
+clears it when the speaker port is back. A port it can't read leaves the
+filter on. The hook acts only on filters whose conf carries
+`speaker-tuning.speaker-port-only = true`. A filter that is itself the selected
+output stays on, since streams then play into it directly. The fragment loads
+the script as a wanted component, not a required one, so a script that fails to
+load is logged and WirePlumber starts without it.
+
+`--speaker-port-hook auto`, the default, installs the hook when the target sink
+shows a speaker port and another output port beside it. The hook applies the
+same rule, so a sink with no port typed `speaker` is left alone. Where the
+speakers have a sink of their own, as on a card with a UCM profile, nothing is
+installed. `on` installs it without reading the graph, for a conf built where
+there is no audio session, and `off` never installs it. With `--output`, the two
+files are staged beside the conf under `wireplumber/`.
+
+`--speaker-info` and `--doctor` list each sink's output ports, with their type
+and the active one.
+
+Limits of the hook:
+
+- An app set to play straight into the chain's own sink goes silent on
+  headphones, because it feeds a bypassed filter. The hook protects one such
+  case only: when the chain is the selected output for everything, it leaves
+  the chain on.
+- WirePlumber 0.5.0 to 0.5.5 load a custom hook after their event source has
+  started, so the hook may miss headphones already plugged in at login until
+  the next port change. The install warns on those versions. Read from
+  WirePlumber's source, not observed on such a version.
+
 ### The selected output is remembered
 
 The chain's sink stays visible in sound settings, as Limitations describes, so
@@ -348,6 +397,8 @@ converting anything. `dolby_to_pipewire.py --doctor` reaches it too. It reports:
   makes `module-filter-chain` drop the whole file
 - an `.irs` a conf names but that isn't there
 - a `filter.smart.target` naming a sink that no longer exists
+- a target sink that also plays through a non-speaker port, and whether the
+  speaker-port hook is installed and has acted
 - which output is selected: the chain itself, a virtual-sink chain nothing is
   playing through, or a remembered pick naming a chain that is gone. See "The
   selected output is remembered".
@@ -371,7 +422,8 @@ can't reach.
 `ee_to_pipewire.py --uninstall` and `dolby_to_pipewire.py --uninstall` remove
 every conf carrying the tool's header from `pipewire.conf.d/` and
 `filter-chain.conf.d/`, plus the `.irs` copied beside each. An `.irs` the conf
-names anywhere else is left in place. When a removed conf sat where PipeWire
+names anywhere else is left in place. The speaker-port hook's two files go too,
+once no conf that stays uses them. When a removed conf sat where PipeWire
 reads, the wrapper then restarts PipeWire. It also restarts
 `filter-chain.service` when that unit is active and the conf sat in its
 directory. The

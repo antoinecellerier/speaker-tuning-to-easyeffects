@@ -127,7 +127,7 @@ def _compose_parser(argv=None):
 
     group = parser.add_argument_group("routing")
     step2_actions += ee_to_pipewire.add_routing_args(
-        group, only={"--target-sink", "--target-object"})
+        group, only={"--target-sink", "--speaker-port-hook", "--target-object"})
 
     group = parser.add_argument_group("output")
     step1_actions += dolby_to_easyeffects.add_output_args(

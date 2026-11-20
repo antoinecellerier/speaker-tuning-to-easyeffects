@@ -225,6 +225,9 @@ Each reports what it finds and what to do about it.
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](docs/dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
+- **Without EasyEffects, the tuning plays on wired headphones.**
+  `dolby_to_pipewire.py --doctor` says what to change.
+  [Headphones on the speakers' sink](docs/ee-to-pipewire.md#headphones-on-the-speakers-sink).
 - **Re-ran the script but hear no change.** The run can't reload a Flatpak
   EasyEffects, so pick the preset again in its Presets menu. Only releases
   whose changelog entry is tagged **[AUDIBLE]** change the sound:

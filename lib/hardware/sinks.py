@@ -134,11 +134,14 @@ def sinks_from_dump(data) -> list[dict]:
     if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
         return []
 
-    # Map PipeWire Device id -> {card-profile-device index -> output route
-    # description}. A sink node carries 'device.id' (its Device object) and
+    # Map PipeWire Device id -> {card-profile-device index -> active output
+    # route}. A sink node carries 'device.id' (its Device object) and
     # 'card.profile.device' (the route's device index within that card), so we
     # can resolve the active output route description EasyEffects matches on.
+    # `ports_by_device` is the same join over EnumRoute: every output port
+    # the sink can switch to, active or not.
     routes_by_device: dict = {}
+    ports_by_device: dict = {}
     for obj in data:
         if not str(obj.get("type", "")).endswith("Device"):
             continue
@@ -151,29 +154,99 @@ def sinks_from_dump(data) -> list[dict]:
             if route.get("direction") != "Output":
                 continue
             dev_idx = route.get("device")
-            desc = route.get("description")
-            if dev_idx is not None and desc:
-                out_routes[dev_idx] = desc
+            if dev_idx is not None and route.get("description"):
+                out_routes[dev_idx] = route
         if out_routes:
             routes_by_device[dev_id] = out_routes
+        ports: dict = {}
+        for route in params.get("EnumRoute", []) or []:
+            if route.get("direction") != "Output":
+                continue
+            for dev_idx in route.get("devices") or []:
+                ports.setdefault(dev_idx, []).append(_port(route))
+        if ports:
+            ports_by_device[dev_id] = ports
 
     sinks = []
     for obj in data:
         props = _info_section(obj, "props")
         if props.get("media.class") != "Audio/Sink":
             continue
-        route = routes_by_device.get(props.get("device.id"), {}).get(
-            props.get("card.profile.device"))
+        key = props.get("card.profile.device")
+        route = routes_by_device.get(props.get("device.id"), {}).get(key) or {}
         sinks.append({
             "name": props.get("node.name", ""),
             "description": props.get("node.description", ""),
             "profile": props.get("device.profile.description", ""),
-            "route": route or "",
+            "route": route.get("description", ""),
+            "active_port": route.get("name", ""),
+            "ports": ports_by_device.get(props.get("device.id"), {}).get(
+                key, []),
             "icon_name": props.get("device.icon_name", ""),
             "bus": props.get("device.bus", ""),
             "api": props.get("device.api", ""),
         })
     return sinks
+
+
+SPEAKER_PORT_TYPE = "speaker"
+
+
+def _port(route: dict) -> dict:
+    """One output port of a sink, from a pw-dump ``EnumRoute`` entry.
+
+    ``type`` is the route's ``port.type`` (``speaker``, ``headphones``,
+    ``hdmi``…), which pw-dump carries in ``info`` as a flat
+    ``[count, key, value, …]`` list; empty when the card doesn't say."""
+    info = route.get("info") or []
+    pairs = dict(zip(info[1::2], info[2::2])) if isinstance(info, list) else {}
+    return {
+        "name": route.get("name", ""),
+        "description": route.get("description", ""),
+        "type": str(pairs.get("port.type", "")),
+        "available": route.get("available", ""),
+    }
+
+
+def non_speaker_ports(sink: dict) -> list[dict]:
+    """The output ports ``sink`` offers besides its speaker port: a headphone
+    jack sharing the speakers' sink, on a card with no profile that separates
+    them (issue #73).
+
+    Empty unless the sink has a port typed ``speaker`` as well. A sink whose
+    only port is the generic ``analog-output`` (type ``analog``) gives no
+    port to tell the speakers by, and treating it as "not the speakers"
+    would switch the tuning off for good."""
+    ports = sink.get("ports", [])
+    if not any(p["type"] == SPEAKER_PORT_TYPE for p in ports):
+        return []
+    return [p for p in ports if p["type"] != SPEAKER_PORT_TYPE]
+
+
+def port_lines(sinks: list[dict]) -> list[str]:
+    """Every sink's output ports, for a pasted report: the sink's node.name,
+    then a line per port with its type, the active one starred. Sinks with
+    no port (a filter chain, a Bluetooth device) are left out."""
+    lines = []
+    for sink in sinks:
+        if not sink.get("ports"):
+            continue
+        lines.append(f"  {doctor.no_bt_address(sink['name'])}")
+        for p in sink["ports"]:
+            notes = [p["type"] or "type not given"]
+            if p["available"] == "no":
+                notes.append("not available")
+            star = "*" if p["name"] == sink.get("active_port") else " "
+            lines.append(f"    {star} {p['name']} ({', '.join(notes)})")
+    return lines
+
+
+def output_port_lines() -> list[str]:
+    """`port_lines` over a fresh ``pw-dump``; empty with no session."""
+    try:
+        return port_lines(_enumerate_audio_sinks())
+    except (OSError, KeyError, TypeError):
+        return []
 
 
 

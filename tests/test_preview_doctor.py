@@ -322,6 +322,9 @@ _PW_EXPECTED = {
     "pw-several-unpinned": ("Several chains as separate outputs", DOCTOR_WARN),
     "pw-chain-selected": ("Default output", DOCTOR_WARN),
     "pw-chain-muted": ("Chain volume", DOCTOR_FAIL),
+    "pw-headphones-no-hook": ("Speaker port", DOCTOR_WARN),
+    "pw-headphones-bypassed": None,
+    "pw-headphones-hook-idle": ("Speaker port", DOCTOR_WARN),
 }
 
 

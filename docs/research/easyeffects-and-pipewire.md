@@ -19,6 +19,9 @@
   socket answers, never the `easyeffects` CLI ([CLI](#r-ee-cli-live-state)).
 - **Several virtual-sink chains** each cost their full DSP whenever they run,
   and ten at once got PipeWire killed ([#144](#r-virtual-sink-chain-cpu)).
+- **Headphones on the speakers' own sink** bypass the PipeWire chain through a
+  WirePlumber hook, heard working on the dev machine with UCM off
+  ([#73](#r-speaker-port-hook)).
 
 Open:
 
@@ -37,6 +40,8 @@ Open:
   ([#95](#r-irs-in-place-rewrite)).
 - What wakes the #144 reporter's idle chains is unconfirmed
   ([#144](#r-virtual-sink-chain-cpu)).
+- The speaker-port hook is untested on the reporter's card, and on any
+  WirePlumber older than 0.5.19 ([#73](#r-speaker-port-hook)).
 
 <a id="r-preset-loads-but-inaudible"></a>
 
@@ -657,6 +662,81 @@ one: below 0.5.18, a fixed value only moves the wrong pick. At 1100, a chain
 would outrank a Bluetooth headset (1010) or the speaker picked after it. The
 default smart-filter routing has no such gap, because there the fallback is the
 speaker sink the chain attaches to.
+
+<a id="r-speaker-port-hook"></a>
+
+## Headphones that share the speakers' sink (issue #73)
+
+The Framework Laptop 13 Pro in
+[#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)
+has no UCM profile, so its speakers and headphone jack are two ports of one
+`…analog-stereo` sink. A smart filter alone keeps processing on headphones.
+The converter installs a WirePlumber hook for such a sink:
+[ee-to-pipewire.md](../ee-to-pipewire.md#headphones-on-the-speakers-sink).
+
+Observed on the dev machine on 2026-11-20: X1 Yoga Gen 7, PipeWire 1.6.9,
+WirePlumber 0.5.19, with UCM switched off for the internal card
+(`api.alsa.use-ucm = false`), which gives the same one-sink, two-port shape.
+
+- **The hook bypasses and restores the filter on the real jack.** With music
+  playing, plugging headphones in made the headphone port active, the hook set
+  `filter.smart.disabled`, and the stream was relinked from the chain's sink to
+  the hardware sink. Unplugging cleared the key and the stream went back
+  through the chain. Sound carried on both ways. That the headphone sound was
+  untreated is read from the links, not judged by ear.
+- **An `optional` profile feature is never loaded.** The first fragment marked
+  the script's feature `optional` in the `main` profile, and the script did not
+  run. The fragment requires a virtual component that *wants* the script.
+- **A script that fails to load does not stop WirePlumber that way.** With a
+  syntax error in the script, WirePlumber logged "optional component … failed
+  to load" and came up with every sink.
+- **A bypassed filter that is the selected output is silent.** Streams then
+  target the chain's sink, whose playback side is unlinked. The hook leaves
+  such a filter on. A stream an app pins to the chain's sink is not guarded.
+- **Switching to an unplugged port by hand is not the same test.** WirePlumber
+  stops treating a sink on an unavailable route as the default, so the default
+  moved to the chain's sink, which this machine's saved defaults still name.
+- **A test that uninstalls reached the real data directory.** A suite run
+  removed the installed script, because the suite repointed
+  `XDG_CONFIG_HOME` but not `XDG_DATA_HOME`. The suite repoints both.
+
+Read from source, not observed:
+
+- **Upstream has no declarative way to do this.** A WirePlumber maintainer
+  answered the same scenario with "No, unfortunately it is not possible" in
+  [WirePlumber issue 803](https://gitlab.freedesktop.org/pipewire/wireplumber/-/work_items/803),
+  and
+  [PipeWire issue 4763](https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/4763)
+  asks for it and is open. The node's properties don't change with the active
+  port, so nothing a `filter.smart.target` or a rule matches on can tell the
+  ports apart.
+- **Every feature the hook uses is in WirePlumber 0.5.0**, read at each 0.5.x
+  tag. The stock rule that loads a `hooks.*` script before the event source
+  arrives in 0.5.6. On 0.5.0 to 0.5.5 the script can load too late for a
+  session's first events. Distributions shipping that range on 2026-11-20:
+  openSUSE Leap 15.6 and Alpine 3.20 at 0.5.2, NixOS 24.05 at 0.5.3.
+- **`port.type` has been in a route's info since PipeWire 0.3.14.**
+
+Open:
+
+- The hook has not run on the reporter's card, or on NixOS.
+- No WirePlumber older than 0.5.19 was run.
+- A sink with no speaker-typed port, which the hook leaves alone, is
+  unit-tested only: the dev machine has no such sink.
+
+### Rejected: a `pactl subscribe` loop
+
+A shell loop that watches port changes and calls `pw-metadata` is fewer lines
+than the Lua script. It needs `pactl`, a JSON reader and a systemd user unit,
+has to re-resolve the filter's id after every restart, and leaves a window at
+login where the filter plays on headphones.
+
+### Rejected: a split ALSA profile set
+
+A per-user profile set can give each port its own profile and sink name. A jack
+event then has to switch profiles, not ports, the sink names change under
+users' saved defaults, and the tool would carry a fork of a distribution file.
+Not tried.
 
 <a id="r-uninstall-live-state"></a>
 

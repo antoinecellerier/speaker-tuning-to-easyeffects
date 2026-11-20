@@ -139,6 +139,7 @@ STDLIB_ONLY = (
     # lib.console and are absent here for that reason, not by oversight.
     "lib.pipewire.plugins",
     "lib.pipewire.conf",
+    "lib.pipewire.port_hook",
     "lib.pipewire.vbe",
     # The PipeWire session reader (clock, xruns, uptime) both doctors print
     # from; its own docstring promises stdlib-only, and

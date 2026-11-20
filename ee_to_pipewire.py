@@ -34,7 +34,8 @@ from pathlib import Path
 from lib import (console, doctor, ee_paths, invocation, packages, tool_env,
                  uninstall)
 from lib.hardware import sinks
-from lib.pipewire import checks, install, session, validate, vbe
+from lib.pipewire import (checks, install, port_hook, session, validate,
+                          vbe)
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
@@ -66,6 +67,20 @@ def add_routing_args(container, *, only=None):
              "automatically. Pass '' for the v1 virtual-sink conf, for "
              "WirePlumber < 0.5 or a non-standard policy. Apps then target "
              "effect_input.<name> directly.",
+    )
+    add(
+        "--speaker-port-hook",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="also install a WirePlumber hook that bypasses the filter while "
+             "the target sink's active port is not a speaker port. It is for "
+             "a sound card whose headphone jack shares one sink with the "
+             "speakers, where the filter would otherwise keep processing on "
+             "headphones. auto (default) installs it when the target sink "
+             "has a speaker port and another output port. on installs it "
+             "without looking, for a conf "
+             "built away from the machine it will run on. off never installs "
+             "it. Needs the smart-filter routing --target-sink gives.",
     )
     add(
         "--target-object",
@@ -640,12 +655,21 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     if target_sink and describe_as_filter:
         node_description += pw_conf.SMART_DESCRIPTION_SUFFIX
 
+    want_hook = _wants_port_hook(args, target_sink)
+    # Beside a conf of the reader's own (--output) the hook files are staged
+    # too: only a conf in a directory PipeWire reads is a live install.
+    conf_dir = target_irs_dir.expanduser().resolve()
+    hook_staging = (None if conf_dir in {
+        d.expanduser().resolve() for d in checks.live_conf_dirs()}
+        else conf_dir)
+
     links = pw_conf.emit_links(chain.stages) + vbe_links
     conf = pw_conf.format_conf(chain.stages, links, node_name,
                                node_description,
                                target_object=args.target_object,
                                target_sink=target_sink,
-                               warnings=chain.warnings)
+                               warnings=chain.warnings,
+                               speaker_port_only=want_hook)
 
     for w in chain.warnings:
         console.cprint("warn", f"[warn] {w}")
@@ -766,6 +790,10 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                      and src_irs.resolve() != target_irs.resolve())
                      else None)
         install._print_results(would_conf, would_irs, dry_run=True)
+        if want_hook:
+            install._print_port_hook(port_hook.paths(hook_staging),
+                                     staged=hook_staging is not None,
+                                     dry_run=True)
         return 0
 
     assert output_path is not None
@@ -773,6 +801,14 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("err", f"error: {doctor.tilde(output_path)} exists; pass "
                       "--force to overwrite")
         return 1
+    if want_hook:
+        # Before anything is written: a conf carrying the marker with no hook
+        # beside it would read as protected and not be.
+        for path in port_hook.foreign(hook_staging):
+            console.cprint("err", f"error: {doctor.tilde(path)} exists and "
+                           "isn't a file this tool wrote; move it away, or "
+                           "pass --speaker-port-hook off")
+            return 1
 
     # IRS copy: skip when source and target are the same path (no-op),
     # otherwise honour the same --force semantics as the conf write.
@@ -789,6 +825,10 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
     install._print_results(output_path, copied_irs, dry_run=False)
+    if want_hook:
+        install._print_port_hook(port_hook.write(hook_staging),
+                                 staged=hook_staging is not None,
+                                 dry_run=False)
     checks.warn_if_stacked(output_path, target_sink)
     if target_sink is None and (not wrapped or args.target_sink != ""):
         # The wrapper counts its whole run once, after its last conf lands, but
@@ -807,6 +847,60 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         install._print_next_steps(node_name, target_object=args.target_object,
                                   selectable=target_sink is None)
     return 0
+
+
+def _wants_port_hook(args, target_sink: str | None) -> bool:
+    """Whether this conf gets the speaker-port hook (``lib.pipewire.port_hook``).
+
+    ``auto`` answers from the target sink's ports in the running graph. A
+    sink it can't see gets no hook, and a line saying how to ask for one
+    when the reader named the sink themselves: that is the run building a
+    conf for another machine."""
+    mode = args.speaker_port_hook
+    if not target_sink:
+        if mode == "on":
+            console.cprint("warn", "[speaker-port] --speaker-port-hook on "
+                           "ignored: it needs smart-filter routing, which "
+                           "this conf doesn't have")
+        return False
+    if mode == "off":
+        return False
+    if mode == "on":
+        console._cprint_wrapped(
+            "ok", "[speaker-port] adding the WirePlumber script that "
+            "switches the filter off while the speakers aren't the active "
+            "output (from --speaker-port-hook on)", indent="   ")
+        return True
+    sink = next((s for s in sinks._enumerate_audio_sinks()
+                 if s["name"] == target_sink), None)
+    if sink is None:
+        if args.target_sink:
+            console._cprint_wrapped(
+                "dim", f"[speaker-port] {target_sink} isn't in the running "
+                "graph, so its ports weren't read; if its headphone jack "
+                "shares that sink with the speakers, add "
+                "--speaker-port-hook on", indent="   ")
+        return False
+    others = sinks.non_speaker_ports(sink)
+    if not others:
+        return False
+    names = ", ".join(p["description"] or p["name"] for p in others)
+    that = "that output is" if len(others) == 1 else "one of those is"
+    console._cprint_wrapped(
+        "ok", f"[speaker-port] your speakers share this output with: {names}. "
+        "Adding a small WirePlumber script that switches the filter off "
+        f"while {that} in use, so only the speakers get the tuning "
+        "(--speaker-port-hook off skips it)", indent="   ")
+    wp = session.wireplumber_version()
+    if wp.ok and (0, 5) <= wp.parts < port_hook.ORDERED_LOAD:
+        # "may": read from upstream's source, not seen on such a version.
+        console._cprint_wrapped(
+            "warn", f"[speaker-port] WirePlumber {wp.text} may start the "
+            "script too late to notice headphones already plugged in when you "
+            "log in; unplugging and replugging them applies it. "
+            f"{'.'.join(map(str, port_hook.ORDERED_LOAD))} and later load it "
+            "in time", indent="   ")
+    return True
 
 
 def _uninstall(args) -> int:

@@ -326,7 +326,8 @@ def test_enumerate_parses_pwdump(monkeypatch):
     sinks = hw_sinks._enumerate_audio_sinks()
     assert len(sinks) == 1
     # No Device object in the dump, so the route can't be resolved → "".
-    assert sinks[0] == {**IDEAPAD_ANALOG, "route": ""}
+    assert sinks[0] == {**IDEAPAD_ANALOG, "route": "", "active_port": "",
+                        "ports": []}
 
 
 def test_sinks_from_dump_is_the_boundary_without_the_subprocess():
@@ -3285,3 +3286,73 @@ def test_speaker_info_prints_every_pins_firmware_default(capsys):
     assert "Pin defaults on codec 17AA22E6" in joined
     assert "0x17=0x90170111" in joined and "0x21=0x03211020" in joined
     assert "0x1b=0x411111f0" in joined
+
+
+# --- Output ports (issue #73) ------------------------------------------------
+
+def _route(name, description, port_type, device, available="unknown"):
+    """An EnumRoute/Route entry as pw-dump prints one: `info` is a flat
+    count-then-pairs list."""
+    return {"direction": "Output", "name": name, "description": description,
+            "available": available, "device": device, "devices": [device],
+            "info": [2, "port.type", port_type, "card.profile.port", "2"]}
+
+
+def _card_dump(active, *ports, node="alsa_output.pci-0000_00_1f.3.analog-stereo"):
+    return [
+        {"type": "PipeWire:Interface:Device", "id": 64, "info": {"params": {
+            "Route": [active],
+            "EnumRoute": [*ports, {"direction": "Input", "name": "mic",
+                                   "devices": [7]}],
+        }}},
+        {"type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink", "node.name": node,
+            "device.id": 64, "card.profile.device": 7}}},
+    ]
+
+
+SPEAKER_PORT = _route("analog-output-speaker", "Speakers", "speaker", 7)
+HEADPHONE_PORT = _route("analog-output-headphones", "Headphones",
+                        "headphones", 7, available="no")
+
+
+def test_a_shared_sink_lists_its_headphone_port():
+    """The #73 card: speakers and the jack are two ports of one sink."""
+    sink, = hw_sinks.sinks_from_dump(
+        _card_dump(SPEAKER_PORT, SPEAKER_PORT, HEADPHONE_PORT))
+    assert sink["active_port"] == "analog-output-speaker"
+    assert [(p["name"], p["type"], p["available"]) for p in sink["ports"]] == [
+        ("analog-output-speaker", "speaker", "unknown"),
+        ("analog-output-headphones", "headphones", "no")]
+    assert [p["name"] for p in hw_sinks.non_speaker_ports(sink)] == [
+        "analog-output-headphones"]
+
+
+def test_a_speaker_only_sink_has_no_other_port():
+    """A UCM card: the speaker sink carries the speaker route alone."""
+    sink, = hw_sinks.sinks_from_dump(_card_dump(SPEAKER_PORT, SPEAKER_PORT))
+    assert hw_sinks.non_speaker_ports(sink) == []
+
+
+def test_ports_of_another_profile_device_are_not_this_sinks():
+    hdmi = _route("hdmi-output-0", "HDMI", "hdmi", 4)
+    sink, = hw_sinks.sinks_from_dump(_card_dump(SPEAKER_PORT, SPEAKER_PORT, hdmi))
+    assert [p["name"] for p in sink["ports"]] == ["analog-output-speaker"]
+
+
+def test_port_lines_star_the_active_port_and_skip_portless_sinks():
+    dump = _card_dump(SPEAKER_PORT, SPEAKER_PORT, HEADPHONE_PORT) + [
+        {"type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink", "node.name": "effect_input.X"}}}]
+    assert hw_sinks.port_lines(hw_sinks.sinks_from_dump(dump)) == [
+        "  alsa_output.pci-0000_00_1f.3.analog-stereo",
+        "    * analog-output-speaker (speaker)",
+        "      analog-output-headphones (headphones, not available)"]
+
+
+def test_a_sink_with_no_speaker_typed_port_has_nothing_to_tell_apart():
+    """The generic `analog-output` port: calling it "not the speakers" would
+    switch the tuning off for good."""
+    analog = _route("analog-output", "Analog Output", "analog", 7)
+    sink, = hw_sinks.sinks_from_dump(_card_dump(analog, analog))
+    assert hw_sinks.non_speaker_ports(sink) == []

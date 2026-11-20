@@ -27,6 +27,7 @@ import re
 from pathlib import Path
 
 from lib import invocation, version
+from lib.pipewire import port_hook
 from lib.pipewire.plugins import ChainResult, EE_KEY_DISPATCH, Stage
 
 
@@ -244,7 +245,8 @@ def format_conf(stages: list[Stage], links: list[dict],
                 node_name: str, node_description: str,
                 target_object: str | None = None,
                 target_sink: str | None = None,
-                warnings: list[str] | None = None) -> str:
+                warnings: list[str] | None = None,
+                speaker_port_only: bool = False) -> str:
     """Render the full PipeWire filter-chain conf as text.
 
     ``target_sink`` is the WirePlumber 0.5+ smart-filter target, typically
@@ -260,6 +262,10 @@ def format_conf(stages: list[Stage], links: list[dict],
     used by the measurement rig to redirect into a null sink. It
     coexists with ``target_sink``, but the smart-filter pattern usually
     makes it unnecessary outside test rigs.
+
+    ``speaker_port_only`` marks a smart filter for the WirePlumber hook in
+    ``lib.pipewire.port_hook``, which bypasses it while ``target_sink``'s
+    active port is not a speaker port.
     """
     if not stages:
         msg = (
@@ -329,6 +335,8 @@ def format_conf(stages: list[Stage], links: list[dict],
             "filter.smart.target": {"node.name": target_sink},
             "priority.session": -1,
         })
+        if speaker_port_only:
+            capture_props[port_hook.MARKER] = True
     playback_props: dict = {
         "node.name": f"effect_output.{safe_name}",
         "node.passive": True,

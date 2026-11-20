@@ -3468,3 +3468,180 @@ def test_the_loader_refusal_is_the_only_verdict_printed(generated, tmp_path,
     out = capsys.readouterr().out
     assert "[validate]" not in out and out.count("conf not written") == 1
     assert len(calls) == 1
+
+
+# --- Speaker-port hook (issue #73) ------------------------------------------
+#
+# Speakers and a headphone jack as two ports of one sink: the smart filter
+# can't tell them apart, so the install adds a WirePlumber hook that can.
+
+def _shared_sink(name="alsa_output.pci-0000_00_1f.3.analog-stereo",
+                 headphones=True):
+    ports = [{"name": "analog-output-speaker", "description": "Speakers",
+              "type": "speaker", "available": "unknown"}]
+    if headphones:
+        ports.append({"name": "analog-output-headphones",
+                      "description": "Headphones", "type": "headphones",
+                      "available": "no"})
+    return {"name": name, "ports": ports,
+            "active_port": "analog-output-speaker"}
+
+
+def test_format_conf_marks_a_filter_for_the_port_hook():
+    from lib.pipewire import port_hook
+    plain = _format_minimal(target_sink="s")
+    assert port_hook.MARKER not in plain
+    chain = build_chain({"output": {"plugins_order": ["limiter#0"], "limiter#0": {
+        "bypass": False, "threshold": -1.0, "lookahead": 1.0, "attack": 1.0,
+        "release": 5.0, "stereo-link": 100.0, "input-gain": 0.0,
+        "output-gain": 0.0, "mode": "Herm Thin", "alr": False,
+        "gain-boost": False}}}, irs_dir=None, must_exist=False)
+    marked = format_conf(chain.stages, emit_links(chain.stages), "T", "d",
+                         target_sink="s", speaker_port_only=True)
+    assert f"{port_hook.MARKER} = true" in marked
+    # Never on a plain virtual sink: nothing there for the hook to bypass.
+    unsmart = format_conf(chain.stages, emit_links(chain.stages), "T", "d",
+                          speaker_port_only=True)
+    assert port_hook.MARKER not in unsmart
+
+
+def test_port_hook_fragment_cannot_stop_wireplumber():
+    """The profile requires only the virtual loader, which *wants* the
+    script. One marked optional is never loaded, and a wanted one that fails
+    is logged and survived: both observed on WirePlumber 0.5.19
+    (`r-speaker-port-hook`). That a script required directly stops
+    WirePlumber when it fails is its documentation's word, not observed."""
+    from lib.pipewire import port_hook
+    assert f"{port_hook.LOADER} = required" in port_hook.FRAGMENT
+    assert f"{port_hook.FEATURE} = " not in port_hook.FRAGMENT
+    assert f"wants = [ {port_hook.FEATURE} ]" in port_hook.FRAGMENT
+    assert f"name = {port_hook.SCRIPT_NAME}" in port_hook.FRAGMENT
+    assert port_hook.MARKER in port_hook.SCRIPT
+
+
+def _hook_files(out_path):
+    from lib.pipewire import port_hook
+    return port_hook.paths(out_path.parent)
+
+
+def test_auto_installs_the_hook_for_a_sink_with_a_headphone_port(
+        generated, tmp_path, monkeypatch, capsys):
+    from lib.hardware import sinks as hw
+    from lib.pipewire import port_hook
+    sink = _shared_sink()
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", sink["name"])
+    assert rc == 0
+    assert f"{port_hook.MARKER} = true" in out_path.read_text()
+    script, fragment = _hook_files(out_path)
+    assert script.read_text() == port_hook.SCRIPT
+    assert fragment.read_text() == port_hook.FRAGMENT
+    out = capsys.readouterr().out
+    assert "share this output with: Headphones" in " ".join(out.split())
+    assert "--speaker-port-hook off" in out
+
+
+def test_auto_installs_no_hook_for_a_speaker_only_sink(
+        generated, tmp_path, monkeypatch):
+    from lib.hardware import sinks as hw
+    from lib.pipewire import port_hook
+    sink = _shared_sink(headphones=False)
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", sink["name"])
+    assert rc == 0
+    assert port_hook.MARKER not in out_path.read_text()
+    assert not any(p.exists() for p in _hook_files(out_path))
+
+
+def test_auto_names_the_flag_when_the_sink_is_not_in_the_graph(
+        generated, tmp_path, capsys):
+    """A conf built away from its machine (a Nix derivation): nothing to
+    read ports from, so the run says how to ask for the hook."""
+    from lib.pipewire import port_hook
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", "elsewhere")
+    assert rc == 0
+    assert port_hook.MARKER not in out_path.read_text()
+    assert "--speaker-port-hook on" in capsys.readouterr().out
+
+
+def test_on_installs_the_hook_without_a_graph(generated, tmp_path):
+    from lib.pipewire import port_hook
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                "elsewhere", "--speaker-port-hook", "on")
+    assert rc == 0
+    assert f"{port_hook.MARKER} = true" in out_path.read_text()
+    assert all(port_hook.is_ours(p) for p in _hook_files(out_path))
+
+
+def test_off_never_installs_the_hook(generated, tmp_path, monkeypatch):
+    from lib.hardware import sinks as hw
+    from lib.pipewire import port_hook
+    sink = _shared_sink()
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                sink["name"], "--speaker-port-hook", "off")
+    assert rc == 0
+    assert port_hook.MARKER not in out_path.read_text()
+    assert not any(p.exists() for p in _hook_files(out_path))
+
+
+def test_on_without_smart_routing_is_ignored_aloud(generated, tmp_path, capsys):
+    from lib.pipewire import port_hook
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink", "",
+                                "--speaker-port-hook", "on")
+    assert rc == 0
+    assert port_hook.MARKER not in out_path.read_text()
+    assert "ignored" in capsys.readouterr().out
+
+
+def test_dry_run_names_the_hook_files_and_writes_none(generated, tmp_path, capsys):
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                "elsewhere", "--speaker-port-hook", "on",
+                                "--dry-run")
+    assert rc == 0
+    assert "Would write WirePlumber hook script" in capsys.readouterr().out
+    assert not any(p.exists() for p in _hook_files(out_path))
+
+
+def test_a_foreign_file_in_the_hooks_place_stops_the_run(generated, tmp_path, capsys):
+    out_dir = tmp_path / "out"
+    from lib.pipewire import port_hook
+    script, _fragment = port_hook.paths(out_dir)
+    script.parent.mkdir(parents=True)
+    script.write_text("-- someone else's\n")
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                "elsewhere", "--speaker-port-hook", "on")
+    assert rc == 1
+    assert not out_path.exists()
+    assert script.read_text() == "-- someone else's\n"
+
+
+def test_live_hook_paths_follow_the_xdg_homes(monkeypatch, tmp_path):
+    from lib.pipewire import port_hook
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    script, fragment = port_hook.paths()
+    assert script == (tmp_path / "data" / "wireplumber" / "scripts"
+                      / port_hook.SCRIPT_NAME)
+    assert fragment == (tmp_path / "config" / "wireplumber"
+                        / "wireplumber.conf.d" / port_hook.FRAGMENT_NAME)
+
+
+@pytest.mark.parametrize("version,warned", [((0, 5, 2), True),
+                                            ((0, 5, 6), False),
+                                            ((0, 5, 19), False)])
+def test_auto_warns_where_wireplumber_may_load_the_hook_late(
+        generated, tmp_path, monkeypatch, capsys, version, warned):
+    from lib.hardware import sinks as hw
+    from lib.pipewire import session
+    sink = _shared_sink()
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    monkeypatch.setattr(session, "wireplumber_version", lambda: session.Version(
+        text=".".join(map(str, version)), parts=version, claim="installed"))
+    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink", sink["name"])
+    assert rc == 0
+    assert ("may start the script too late" in " ".join(
+        capsys.readouterr().out.split())) is warned
