@@ -39,6 +39,9 @@ set -euo pipefail
 
 PRESET_PATH="${1:-}"
 NODE_NAME="${2:-Dolby_PW_Test}"
+# The converter names the conf after the sanitised node name; match it, or
+# the path this script reports and teardown removes isn't the file written.
+NODE_NAME="${NODE_NAME//[^A-Za-z0-9_]/_}"
 
 if [[ -z "$PRESET_PATH" ]]; then
     echo "usage: $0 <ee-preset.json> [<node-name>]" >&2
@@ -98,7 +101,7 @@ mkdir -p "$CONF_DIR"
 #    A plain v1 virtual sink routed only to ee_capture is what measurement wants.
 python3 "${REPO_ROOT}/ee_to_pipewire.py" \
     "$PRESET_PATH" \
-    --output "$CONF_PATH" \
+    --pipewire-confd-dir "$CONF_DIR" \
     --node-name "$NODE_NAME" \
     --node-description "$NODE_NAME (PW filter-chain)" \
     --target-sink '' \

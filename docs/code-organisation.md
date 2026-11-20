@@ -647,4 +647,4 @@ same run at the parent commit:
 
 - the `.irs`
 - the preset JSON, ignoring the `_generator` stamp
-- the conf `ee_to_pipewire.py --output` writes, ignoring its `# version:` stamp
+- the conf `ee_to_pipewire.py` writes, ignoring its `# version:` stamp

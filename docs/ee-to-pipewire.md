@@ -232,8 +232,9 @@ shows a speaker port and another output port beside it. The hook applies the
 same rule, so a sink with no port typed `speaker` is left alone. Where the
 speakers have a sink of their own, as on a card with a UCM profile, nothing is
 installed. `on` installs it without reading the graph, for a conf built where
-there is no audio session, and `off` never installs it. With `--output`, the two
-files are staged beside the conf under `wireplumber/`.
+there is no audio session, and `off` never installs it. With
+`--pipewire-confd-dir`, the two files are staged beside the conf under
+`wireplumber/`.
 
 `--speaker-info` and `--doctor` list each sink's output ports, with their type
 and the active one.

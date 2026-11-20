@@ -19,7 +19,7 @@ Pre-flight (the easy way — let `setup_chain.sh` do steps 1-4):
 Equivalent manual sequence:
   1. Generate the conf:
         python3 ee_to_pipewire.py <ee-preset>.json \\
-            --output ~/.config/pipewire/filter-chain.conf.d/<NAME>.conf \\
+            --pipewire-confd-dir ~/.config/pipewire/filter-chain.conf.d \\
             --node-name <NAME> --target-object ee_capture --force
   2. Start it as a child PipeWire instance:
         pipewire -c filter-chain.conf &

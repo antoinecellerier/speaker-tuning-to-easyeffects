@@ -99,6 +99,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   in balance and play slightly quieter. Re-run to regenerate.
   ([#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150);
   why in `docs/research/loudness-and-limiting.md`)
+- Both PipeWire scripts take `--pipewire-confd-dir DIR` for where the conf and
+  its `.irs` go. `dolby_to_pipewire.py --output-dir` keeps working;
+  `ee_to_pipewire.py --output PATH` is gone, and `--node-name` sets the
+  filename.
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73))
 
 ### Added
 

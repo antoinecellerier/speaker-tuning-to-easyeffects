@@ -19,10 +19,9 @@ the same ``installed_confs``.
 directory reads it here (``check_conf_directory``, ``gather_pw_doctor``,
 ``_environment_lines``). It is also the one constant the suite patches to
 point the doctor at a temporary tree, so it has to be one binding, not a name
-copied in from elsewhere. Its readers outside are the two converters, which
-import this module either way: ``ee_to_pipewire.py`` reaches it through
-``default_conf_path``, and ``dolby_to_pipewire.py`` spells it twice, for
-``--output-dir``'s help default and again in ``main``.
+copied in from elsewhere. Its reader outside is ``ee_to_pipewire.py``: the
+``--pipewire-confd-dir`` help default, and ``confd_dir``, which both
+converters resolve the folder through.
 
 The report vocabulary comes from ``lib/doctor.py``, shared with the
 EasyEffects doctor so the two read as one tool: PASS/WARN/FAIL/UNKNOWN,
@@ -1532,7 +1531,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # Both routes, because either script's --doctor lands here: naming
         # only the wrapper would tell an ee_to_pipewire.py reader to run
         # something else. And the directory is the whole of what was looked
-        # at: a conf someone put elsewhere with --output is not absent, just
+        # at: a conf someone put in another folder is not absent, just
         # unread.
         checks.insert(0, CheckResult(
             DOCTOR_WARN, "Installed confs",
@@ -1540,7 +1539,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
             f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} — run "
             f"{invocation.script('dolby_to_pipewire.py')} on your tuning file "
             f"or driver download (or {invocation.script('ee_to_pipewire.py')} "
-            "on a preset) first; confs written elsewhere with --output aren't "
+            "on a preset) first; confs written to another folder aren't "
             "checked."))
     if dump is None:
         checks.append(CheckResult(
@@ -1722,7 +1721,7 @@ def report_pw_doctor() -> int:
     layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
     # --uninstall only: the checks whose fix is keeping one chain (stacked,
     # several outputs) print their own delete step inline, and a by-hand line
-    # here too read as a second, competing route. No --output-dir: with none
+    # here too read as a second, competing route. No --pipewire-confd-dir: with none
     # it searches every directory PipeWire reads, which covers the one this
     # report lists.
     layout.print_closing((
@@ -1736,14 +1735,14 @@ def uninstall_command(conf_dir: Path | None = None) -> str:
     """The pasteable ``dolby_to_pipewire.py --uninstall`` line for chains
     in *conf_dir*.
 
-    ``--output-dir`` only when *conf_dir* is off the default: ``--uninstall``
-    looks only where it is told, so a line without it would find nothing
-    there. ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py``
+    ``--pipewire-confd-dir`` only when *conf_dir* is off the default:
+    ``--uninstall`` looks only where it is told, so a line without it would
+    find nothing there. ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py``
     because it also restarts PipeWire, which unloads what it removed."""
     extra = ()
     if (conf_dir is not None and Path(conf_dir).expanduser()
             != DEFAULT_PW_CONFD_DIR.expanduser()):
-        extra = ("--output-dir", str(conf_dir))
+        extra = ("--pipewire-confd-dir", str(conf_dir))
     return uninstall.command("dolby_to_pipewire.py", "--uninstall", *extra)
 
 

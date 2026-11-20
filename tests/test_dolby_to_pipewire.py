@@ -158,7 +158,7 @@ def recorders(monkeypatch, tmp_path):
     The fake generator writes the three variant stubs into the --output-dir
     it was handed, like the real one; the fake pw-cli lists every node.
     The install directory is a tmp dir: it is computed at import, so a run
-    without --output-dir would otherwise read the real one, and the confs
+    without --pipewire-confd-dir would otherwise read the real one, and the confs
     on the machine running the suite would decide what these tests see."""
     monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "conf.d")
     # Warm the git-describe version cache before the recorder hooks in:
@@ -406,14 +406,14 @@ def test_single_v1_run_counts_the_chains_already_there(recorders, monkeypatch,
     """The reporter's path: a voicing set first, then a profile on its own."""
     _fake_v1_confs(monkeypatch, ["Dolby_Detailed.conf", "Dolby_Warm.conf"])
     assert wrapper_main(["--profile", "music", "--target-sink", "",
-                         "--output-dir", str(tmp_path), "--no-activate"]) == 0
+                         "--pipewire-confd-dir", str(tmp_path), "--no-activate"]) == 0
     assert "makes 3 chains" in capsys.readouterr().out
 
 
 def test_rewriting_a_lone_chain_never_counts_itself(recorders, monkeypatch,
                                                     tmp_path, capsys):
     _fake_v1_confs(monkeypatch, ["Dolby_Balanced.conf"])
-    assert wrapper_main(["--target-sink", "", "--output-dir", str(tmp_path),
+    assert wrapper_main(["--target-sink", "", "--pipewire-confd-dir", str(tmp_path),
                          "--force", "--no-activate"]) == 0
     assert "separate outputs" not in capsys.readouterr().out
 
@@ -421,7 +421,7 @@ def test_rewriting_a_lone_chain_never_counts_itself(recorders, monkeypatch,
 def test_smart_filter_runs_never_count_chains(recorders, monkeypatch, tmp_path,
                                               capsys):
     _fake_v1_confs(monkeypatch, ["Dolby_Warm.conf", "Dolby_Detailed.conf"])
-    assert wrapper_main(["--output-dir", str(tmp_path), "--no-activate"]) == 0
+    assert wrapper_main(["--pipewire-confd-dir", str(tmp_path), "--no-activate"]) == 0
     assert "separate outputs" not in capsys.readouterr().out
 
 
@@ -630,16 +630,25 @@ def test_routing_no_matching_preset_errors(recorders, monkeypatch, capsys):
     assert recorders.step2 == []
 
 
-def test_routing_output_dir_is_forwarded_absolute(recorders):
-    """A relative --output-dir must reach the converter absolute, or the
-    conf would embed a relative IRS path PipeWire resolves against its own
-    CWD."""
-    assert wrapper_main(["--output-dir", "rel/confs", "--no-activate"]) == 0
+@pytest.mark.parametrize("flag", ["--pipewire-confd-dir", "--output-dir"])
+def test_confd_dir_is_forwarded_under_its_current_name(recorders, flag):
+    """Both spellings land in one dest and reach the converter as
+    --pipewire-confd-dir, which names the folder; the child derives the
+    filename from the node name, as the wrapper's undo list does."""
+    assert wrapper_main([flag, "rel/confs", "--no-activate"]) == 0
     (step2,) = recorders.step2
-    out = Path(step2[step2.index("--output") + 1])
-    assert out.is_absolute()
-    assert out.name == "Dolby_Balanced.conf"
-    assert out.parent.name == "confs"
+    assert step2[step2.index("--pipewire-confd-dir") + 1] == "rel/confs"
+    assert "--output-dir" not in step2
+    assert "--output" not in step2
+
+
+def test_a_relative_confd_dir_resolves_absolute(tmp_path, monkeypatch):
+    """A relative folder must become absolute before the conf is written, or
+    the conf would embed a relative IRS path PipeWire resolves against its
+    own CWD."""
+    monkeypatch.chdir(tmp_path)
+    assert ee_to_pipewire.confd_dir(Path("rel/confs")) == tmp_path / "rel" / "confs"
+    assert ee_to_pipewire.confd_dir(Path("rel/confs")).is_absolute()
 
 
 # ---------------------------------------------------------------------------
@@ -656,7 +665,7 @@ def _run_e2e(tmp_path, *args, env=None):
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     out = tmp_path / "confs"
     result = _run_script(
-        str(xml), "--output-dir", str(out), "--target-sink", "",
+        str(xml), "--pipewire-confd-dir", str(out), "--target-sink", "",
         "--no-activate", "--no-color", *args,
         env={**{k: v for k, v in os.environ.items()
                 if k not in ("XDG_DATA_HOME", "XDG_CONFIG_HOME")},
@@ -722,10 +731,10 @@ def test_e2e_variant_detailed_writes_only_that_pair(tmp_path):
 
 
 def test_e2e_dry_run_writes_nothing_outside_staging(tmp_path):
-    """A dry run installs nothing: the --output-dir it was handed is never
-    created, HOME stays empty, and no conf is dumped to a stream either
-    (--output-dir without --dry-run is how you keep the confs). The run
-    still reports itself in full."""
+    """A dry run installs nothing: the --pipewire-confd-dir it was handed is
+    never created, HOME stays empty, and no conf is dumped to a stream either
+    (--pipewire-confd-dir without --dry-run is how you keep the confs). The
+    run still reports itself in full."""
     result, home, out = _run_e2e(tmp_path, "--dry-run")
     assert result.returncode == 0, result.stderr
     assert not out.exists()
@@ -762,7 +771,7 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     # so the one command leads — told the folder it was written to, or it
     # would look in the default one and find nothing.
     undo_line = next(ln for ln in report.splitlines() if "To undo:" in ln)
-    assert "--uninstall --output-dir" in undo_line, undo_line
+    assert "--uninstall --pipewire-confd-dir" in undo_line, undo_line
     assert str(out) in undo_line
     assert "rm '" not in report
     assert report.index("To undo:") > report.index("Restart PipeWire:")

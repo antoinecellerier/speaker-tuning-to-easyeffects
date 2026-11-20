@@ -85,9 +85,9 @@ def test_wrapper_inherits_both_completer_tables():
     dolby_to_easyeffects._attach_completers(parser)
     ee_to_pipewire._attach_completers(parser)
     by_dest = {a.dest: a for a in parser._actions}
-    # xml_file/windows/output_dir come from the generator's table,
-    # target_sink from the PipeWire converter's.
-    for dest in ("xml_file", "windows", "output_dir", "target_sink"):
+    # xml_file/windows come from the generator's table,
+    # pipewire_confd_dir/target_sink from the PipeWire converter's.
+    for dest in ("xml_file", "windows", "pipewire_confd_dir", "target_sink"):
         assert getattr(by_dest[dest], "completer", None) is not None, (
             f"--{dest} lost its completer when the two tables were composed"
         )

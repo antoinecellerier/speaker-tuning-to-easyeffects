@@ -105,31 +105,34 @@ def add_uninstall_args(container, *, only=None):
     return added
 
 
-def default_conf_path(node_name: str) -> Path:
-    """Return where the conf lands when ``--output`` doesn't say.
+def confd_dir(flag: Path | None) -> Path:
+    """Return the folder the conf and its .irs copy go to.
 
-    Three readers have to agree on this: the real write, the ``--dry-run``
-    preview and the ``--output`` help text below. The preview's whole job is
-    to name the file a real run would produce. The help gets it from here
-    too, by passing the literal ``<node-name>`` as the stem. The placeholder
-    survives ``expanduser()`` untouched (it only ever rewrites a leading
-    ``~``), so the sentence a user reads is rendered by the code it describes
-    instead of restating it, and cannot drift from it. The help collapses
-    $HOME back to ``~`` on the way out. That is the help's business, not this
-    function's, which owes its other two readers a real ``Path``.
+    ``--pipewire-confd-dir`` when given, else PipeWire's per-user drop-in
+    folder. A given folder is resolved: a relative one would bake a relative
+    IRS filename into the conf, which PipeWire resolves against its own CWD
+    and misses. Both converters read it here, so the wrapper's preview and
+    its child's write name the same folder.
     """
-    return (checks.DEFAULT_PW_CONFD_DIR / f"{node_name}.conf").expanduser()
+    if flag is None:
+        return checks.DEFAULT_PW_CONFD_DIR.expanduser()
+    return flag.expanduser().resolve()
 
 
 def add_output_args(container, *, only=None):
-    """Output naming/location flags (dolby_to_pipewire.py shares --force)."""
+    """Output naming/location flags (dolby_to_pipewire.py shares
+    --pipewire-confd-dir and --force)."""
     add, added = console._make_adder(container, only)
     add(
-        "--output",
+        "--pipewire-confd-dir",
         type=Path,
         default=None,
-        help="output .conf path "
-             f"(default: {doctor.tilde(default_conf_path('<node-name>'))})",
+        metavar="DIR",
+        help="folder for the generated conf and its .irs copy, both named "
+             "after the sink's node name, such as Dolby_Balanced.conf "
+             f"(default: {doctor.tilde(checks.DEFAULT_PW_CONFD_DIR)}, which "
+             "PipeWire reads). Point it elsewhere to build the files for "
+             "another location, such as a package.",
     )
     add(
         "--node-name",
@@ -210,8 +213,8 @@ def add_general_args(container, *, only=None):
         help="report where the conf and impulse response would be written, "
              "without writing them. A missing impulse file is reported "
              "instead of stopping the run. To get the conf itself without "
-             "installing it, run without this flag and point --output at a "
-             "path of your own.",
+             "installing it, run without this flag and point "
+             "--pipewire-confd-dir at a folder of your own.",
     )
     add(
         "--skip-next-steps",
@@ -281,16 +284,16 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
 def _attach_completers(parser: argparse.ArgumentParser) -> None:
     """Tell argcomplete what each value-taking option means.
 
-    argparse records `type=Path` for the preset JSON, the output conf and the
-    IRS directory alike, and nothing at all for PipeWire node names."""
+    argparse records `type=Path` for the preset JSON and the two directories
+    alike, and nothing at all for PipeWire node names."""
     from argcomplete.completers import DirectoriesCompleter, FilesCompleter
 
     completers = {
-        "preset":        FilesCompleter(("json",)),
-        "output":        FilesCompleter(("conf",)),
-        "irs_dir":       DirectoriesCompleter(),
-        "target_sink":   _complete_sink_names,
-        "target_object": _complete_sink_names,
+        "preset":             FilesCompleter(("json",)),
+        "pipewire_confd_dir": DirectoriesCompleter(),
+        "irs_dir":            DirectoriesCompleter(),
+        "target_sink":        _complete_sink_names,
+        "target_object":      _complete_sink_names,
     }
     for action in parser._actions:
         completer = completers.get(action.dest)
@@ -438,7 +441,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console._disable_color()
     console.refuse_root()
 
-    if uninstall.requested(parser, args, {"output"}):
+    if uninstall.requested(parser, args, {"pipewire_confd_dir"}):
         return _uninstall(args)
     # Inspection mode: reads the installed state, converts nothing, so the
     # preset positional is optional — and required for everything else.
@@ -481,16 +484,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                           and bool(preset_path.stem))
 
     safe_node_name = pw_conf._sanitize_name(node_name)
-    default_conf = default_conf_path(safe_node_name)
-    output_path: Path | None
-    if args.dry_run:
-        output_path = None
-    elif args.output is not None:
-        # Resolved, or a relative --output bakes a relative IRS filename into
-        # the conf, which PipeWire resolves against its own CWD and misses.
-        output_path = args.output.expanduser().resolve()
-    else:
-        output_path = default_conf
+    conf_dir = confd_dir(args.pipewire_confd_dir)
+    output_path = conf_dir / f"{safe_node_name}.conf"
 
     try:
         chain = pw_conf.build_chain(preset, args.irs_dir.expanduser(),
@@ -539,18 +534,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("dim", "  (sounds wrong? re-run without "
                       "--enable virtual-bass)")
 
-    # Resolve where the IRS will live. By default we copy it next to the
-    # conf so the PW chain is self-contained; --no-copy-irs keeps the
-    # original EE-side absolute path baked into the conf. In dry-run we
-    # still compute the destination so the printed conf reflects what a
-    # real run would produce.
-    if output_path is not None:
-        target_irs_dir = output_path.parent
-    elif args.output is not None:
-        target_irs_dir = args.output.expanduser().parent
-    else:
-        target_irs_dir = default_conf.parent
-    target_irs = target_irs_dir / f"{safe_node_name}.irs"
+    # The IRS is copied next to the conf so the PW chain is self-contained;
+    # --no-copy-irs keeps the original EE-side absolute path baked into the
+    # conf. In dry-run the destination is still computed so the printed conf
+    # reflects what a real run would produce.
+    target_irs = conf_dir / f"{safe_node_name}.irs"
     src_irs: Path | None = None
     if not args.no_copy_irs:
         src_irs = install._retarget_convolver_irs(chain.stages, target_irs)
@@ -656,12 +644,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         node_description += pw_conf.SMART_DESCRIPTION_SUFFIX
 
     want_hook = _wants_port_hook(args, target_sink)
-    # Beside a conf of the reader's own (--output) the hook files are staged
+    # Beside a conf in a folder of the reader's own the hook files are staged
     # too: only a conf in a directory PipeWire reads is a live install.
-    conf_dir = target_irs_dir.expanduser().resolve()
-    hook_staging = (None if conf_dir in {
+    hook_staging = (None if conf_dir.resolve() in {
         d.expanduser().resolve() for d in checks.live_conf_dirs()}
-        else conf_dir)
+        else conf_dir.resolve())
 
     links = pw_conf.emit_links(chain.stages) + vbe_links
     conf = pw_conf.format_conf(chain.stages, links, node_name,
@@ -782,21 +769,19 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # The conf itself is not shown: on a terminal it is a few hundred
         # lines of JSON between the troubleshooting menu and the end of the
         # run, which buries everything either side of it. Someone who wants
-        # the text has --output, which writes it wherever they point it
-        # without installing anything into the PipeWire drop-in directory.
-        would_conf = (args.output.expanduser() if args.output is not None
-                      else default_conf)
+        # the text has --pipewire-confd-dir, which writes it wherever they
+        # point it without installing anything into the PipeWire drop-in
+        # directory.
         would_irs = (target_irs if (src_irs is not None
                      and src_irs.resolve() != target_irs.resolve())
                      else None)
-        install._print_results(would_conf, would_irs, dry_run=True)
+        install._print_results(output_path, would_irs, dry_run=True)
         if want_hook:
             install._print_port_hook(port_hook.paths(hook_staging),
                                      staged=hook_staging is not None,
                                      dry_run=True)
         return 0
 
-    assert output_path is not None
     if output_path.exists() and not args.force:
         console.cprint("err", f"error: {doctor.tilde(output_path)} exists; pass "
                       "--force to overwrite")
@@ -905,13 +890,11 @@ def _wants_port_hook(args, target_sink: str | None) -> bool:
 
 def _uninstall(args) -> int:
     """``--uninstall``: this route's confs, then a pointer to the EasyEffects
-    route's when it has presets installed too. ``--output`` names the
-    directory a custom install went to. Prints the restart rather than
-    running it, as this converter does on install."""
+    route's when it has presets installed too. ``--pipewire-confd-dir``
+    names the directory a custom install went to. Prints the restart rather
+    than running it, as this converter does on install."""
     from lib.pipewire import uninstall as pw_uninstall
-    output_dir = (args.output.expanduser().parent if args.output is not None
-                  else None)
-    rc = pw_uninstall.run(output_dir, dry_run=args.dry_run,
+    rc = pw_uninstall.run(args.pipewire_confd_dir, dry_run=args.dry_run,
                        assume_yes=args.yes, restart=False)
     point_to_easyeffects_uninstall()
     return rc

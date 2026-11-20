@@ -1361,7 +1361,7 @@ def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
     contract is that the conf never gets written. Asserting the exit status
     and the message would pass even if the file had been written and the run
     then changed its mind; the assertion that carries the contract is that
-    `--output` names a path which does not exist afterwards. A half-written or
+    the conf's path does not exist afterwards. A half-written or
     fully-written conf that failed schema validation is the bad outcome: it
     loads into PipeWire.
     """
@@ -1382,7 +1382,7 @@ def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
     ])
     assert rc == 1
     out = capsys.readouterr().out
@@ -1495,7 +1495,7 @@ def test_main_refuses_a_conf_naming_a_plugin_that_cannot_load(generated,
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
     ])
     assert rc == 1
     out = capsys.readouterr().out
@@ -1612,7 +1612,7 @@ def test_main_tells_a_warning_from_an_error_in_a_failing_run(generated,
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(tmp_path / "out" / "TestChain.conf"),
+        "--pipewire-confd-dir", str(tmp_path / "out"),
         "--no-color",
     ])
     assert rc == 1
@@ -1766,7 +1766,7 @@ def _run_main(generated, tmp_path, *extra_args, no_validate=True):
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
         *extra_args,
     ]
     if no_validate:
@@ -1792,14 +1792,13 @@ def test_main_copies_irs_next_to_conf(generated, tmp_path):
     assert str(src_irs) not in conf_text
 
 
-def test_a_relative_output_bakes_an_absolute_irs_path(generated, tmp_path,
-                                                      monkeypatch):
-    """--output ./x.conf used to embed the IRS `filename` relative too, and
-    PipeWire resolves a convolver filename against its own CWD — not the
-    conf's directory — so `nofail` dropped the whole conf on every start,
-    and the doctor's existence check missed against its own CWD the same
-    way. dolby_to_pipewire.py resolves its --output-dir for this reason;
-    the direct entry point has to match."""
+def test_a_relative_confd_dir_bakes_an_absolute_irs_path(generated, tmp_path,
+                                                         monkeypatch):
+    """A relative --pipewire-confd-dir still embeds an absolute IRS
+    `filename`. PipeWire resolves a convolver filename against its own CWD —
+    not the conf's directory — so a relative one would make `nofail` drop the
+    whole conf on every start, and the doctor's existence check would miss
+    against its own CWD the same way."""
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
     preset_path.write_text(json.dumps(preset))
@@ -1809,7 +1808,7 @@ def test_a_relative_output_bakes_an_absolute_irs_path(generated, tmp_path,
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", "TestChain.conf",
+        "--pipewire-confd-dir", ".",
         "--no-validate",
     ])
     assert rc == 0
@@ -1818,6 +1817,18 @@ def test_a_relative_output_bakes_an_absolute_irs_path(generated, tmp_path,
         assert Path(m.group(1)).is_absolute(), m.group(1)
     assert 'filename = "/' in conf_text
     assert (tmp_path / "TestChain.irs").is_file()
+
+
+def test_output_is_not_a_flag(generated, tmp_path, capsys):
+    """The conf is always <node-name>.conf in --pipewire-confd-dir; a
+    filename of its own is --node-name's to set."""
+    preset, _irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    with pytest.raises(SystemExit) as exc:
+        ee2pw_main([str(preset_path), "--output", str(tmp_path / "x.conf")])
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --output" in capsys.readouterr().err
 
 
 def test_main_no_copy_irs_keeps_source_path(generated, tmp_path):
@@ -1848,7 +1859,7 @@ def test_main_dry_run_retargets_without_copying(generated, tmp_path,
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
         "--no-validate",
     ]
     assert ee2pw_main(argv + ["--dry-run"]) == 0
@@ -1871,7 +1882,7 @@ def test_main_dry_run_retargets_without_copying(generated, tmp_path,
 def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
     """--dry-run announces where the conf (and IRS copy) *would* land, and
     that report is all it emits — the conf body itself is no longer dumped
-    to a stream, so --output is the only way to obtain it."""
+    to a stream, so --pipewire-confd-dir is the only way to obtain it."""
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
     preset_path.write_text(json.dumps(preset))
@@ -1880,7 +1891,7 @@ def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
         "--no-validate",
         "--dry-run",
     ])
@@ -1907,7 +1918,7 @@ def test_main_dry_run_says_a_missing_impulse_file_stops_a_real_run(
         str(preset_path),
         "--irs-dir", str(tmp_path / "empty"),
         "--node-name", "TestChain",
-        "--output", str(tmp_path / "out" / "TestChain.conf"),
+        "--pipewire-confd-dir", str(tmp_path / "out"),
         "--no-validate",
     ]
     assert ee2pw_main(argv + ["--dry-run"]) == 0
@@ -2118,9 +2129,11 @@ def _run_with_preset_stem(generated, tmp_path, stem, *extra):
     preset, irs_path = generated
     preset_path = tmp_path / f"{stem}.json"
     preset_path.write_text(json.dumps(preset))
-    out_path = tmp_path / "out" / f"{stem}.conf"
+    out_dir = tmp_path / "out"
     rc = ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
-                     "--output", str(out_path), "--no-validate", *extra])
+                     "--pipewire-confd-dir", str(out_dir), "--no-validate",
+                     *extra])
+    (out_path,) = out_dir.glob("*.conf")
     return rc, out_path
 
 
@@ -2215,8 +2228,8 @@ def test_a_wrapped_run_that_fell_back_to_v1_counts_its_own_chain(
     preset_path = tmp_path / "preset.json"
     preset_path.write_text(json.dumps(preset))
     argv = [str(preset_path), "--irs-dir", str(irs_path.parent),
-            "--node-name", "TestChain", "--output",
-            str(tmp_path / "out" / "TestChain.conf"), "--no-validate",
+            "--node-name", "TestChain", "--pipewire-confd-dir",
+            str(tmp_path / "out"), "--no-validate",
             "--skip-next-steps"]
     assert ee2pw.main(argv, wrapped=True) == 0
     assert "makes 2 chains installed as separate outputs" in \
@@ -2240,11 +2253,11 @@ def test_main_default_node_name_derives_from_preset_filename(
     preset, irs_path = generated
     preset_path = tmp_path / "Dolby-Balanced.json"
     preset_path.write_text(json.dumps(preset))
-    out_path = tmp_path / "out" / "out.conf"
+    out_path = tmp_path / "out" / "Dolby_Balanced.conf"
     rc = ee2pw_main([
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
         "--no-validate",
         "--target-sink", "",
     ])
@@ -2266,11 +2279,11 @@ def test_main_two_presets_produce_distinct_sinks(generated, tmp_path):
 
     confs = []
     for p in (p1, p2):
-        out = tmp_path / f"{p.stem}.conf"
+        out = tmp_path / f"{p.stem.replace('-', '_')}.conf"
         rc = ee2pw_main([
             str(p),
             "--irs-dir", str(irs_path.parent),
-            "--output", str(out),
+            "--pipewire-confd-dir", str(tmp_path),
             "--no-validate",
             "--target-sink", "",
         ])
@@ -2285,11 +2298,11 @@ def test_main_explicit_node_name_overrides_derivation(generated, tmp_path):
     preset, irs_path = generated
     preset_path = tmp_path / "Dolby-Balanced.json"
     preset_path.write_text(json.dumps(preset))
-    out_path = tmp_path / "out" / "Custom.conf"
+    out_path = tmp_path / "out" / "MyChain.conf"
     rc = ee2pw_main([
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
-        "--output", str(out_path),
+        "--pipewire-confd-dir", str(out_path.parent),
         "--node-name", "MyChain",
         "--no-validate",
         "--target-sink", "",

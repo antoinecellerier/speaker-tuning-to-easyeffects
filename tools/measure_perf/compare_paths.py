@@ -340,7 +340,7 @@ def pw_chain_up(preset):
     conf = Path.home() / ".config/pipewire/filter-chain.conf.d" / f"{PERF_NODE}.conf"
     conf.parent.mkdir(parents=True, exist_ok=True)
     sh(["python3", str(REPO_ROOT / "ee_to_pipewire.py"), str(preset),
-        "--output", str(conf), "--node-name", PERF_NODE,
+        "--pipewire-confd-dir", str(conf.parent), "--node-name", PERF_NODE,
         "--target-sink", "", "--target-object", CAPTURE_SINK,
         "--no-validate", "--force", "--irs-dir", str(IRS_DIR)], check=True, timeout=60)
     proc = subprocess.Popen(["pipewire", "-c", "filter-chain.conf"],

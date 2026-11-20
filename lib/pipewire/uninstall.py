@@ -34,7 +34,7 @@ def _copy_names(found: checks.InstalledConf) -> list[Path]:
     """Where the converter would have put this conf's impulse copy.
 
     The node name when it could be read (``effect_input.<name>``), and the
-    conf's own stem, which is the same name unless ``--output`` renamed it.
+    conf's own stem, which is the same name unless the file was renamed.
     """
     names = []
     prefix = "effect_input."
@@ -60,7 +60,7 @@ def plan(output_dir: Path | None) -> Plan:
     found = checks.installed_confs(*dirs)
     removing = {c.path for c in found}
     # Every conf that could still name a copy: the ones looked in, and both
-    # live directories even when --output-dir pointed elsewhere.
+    # live directories even when --pipewire-confd-dir pointed elsewhere.
     scan = (*dirs, *checks.live_conf_dirs())
     result = Plan()
     confs, copies, seen = [], [], set()
@@ -138,7 +138,7 @@ def touches_filter_chain_service(p: Plan) -> bool:
 
 def touches_live_dirs(p: Plan) -> bool:
     """Whether a conf on the list is one PipeWire or filter-chain.service
-    loads: a folder of the reader's own (``--output-dir`` staging) loads
+    loads: a folder of the reader's own (``--pipewire-confd-dir``) loads
     nowhere, and restarting audio for it would cut sound for nothing."""
     live = {d.expanduser().resolve() for d in checks.live_conf_dirs()}
     return any(s.path is not None and s.path.suffix == ".conf"

@@ -26,7 +26,8 @@ PW_DOC = (REPO / "docs/dolby-to-pipewire.md").read_text(encoding="utf-8")
 # omission (e.g. measurement-only routing) — never to quiet a failing trap.
 DOLBY_DOC_OMITS: set[str] = set()
 EE_DOC_OMITS: set[str] = {"--target-object"}
-WRAPPER_DOC_OMITS: set[str] = set()
+# The earlier spelling of --pipewire-confd-dir, kept working but hidden.
+WRAPPER_DOC_OMITS: set[str] = {"--output-dir"}
 
 
 def _parser_groups(parser, omits):

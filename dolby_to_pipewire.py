@@ -132,15 +132,14 @@ def _compose_parser(argv=None):
     group = parser.add_argument_group("output")
     step1_actions += dolby_to_easyeffects.add_output_args(
         group, only={"--prefix"})
-    group.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help=f"directory for the generated .conf and .irs copy (default: "
-             f"{doctor.tilde(checks.DEFAULT_PW_CONFD_DIR)}). Filenames derive "
-             f"from the preset name, such as Dolby_Balanced.conf.",
-    )
-    step2_actions += ee_to_pipewire.add_output_args(group, only={"--force"})
+    step2_actions += ee_to_pipewire.add_output_args(
+        group, only={"--pipewire-confd-dir", "--force"})
+    # The flag's earlier spelling, kept working for scripts and packages that
+    # pass it. Hidden: one name per folder in --help and the docs. Off both
+    # action lists, like --version: the shared action carries the value to
+    # the child under the current name.
+    group.add_argument("--output-dir", dest="pipewire_confd_dir", type=Path,
+                       default=None, help=argparse.SUPPRESS)
 
     group = parser.add_argument_group("activation")
     group.add_argument(
@@ -169,8 +168,8 @@ def _compose_parser(argv=None):
              "the temporary staging directory, except a driver download's "
              "tuning files unpacked into driver-cache/ or the XDG cache, and "
              "PipeWire is not restarted. To get the confs themselves "
-             "without installing them, use --output-dir DIR --no-activate "
-             "in place of this flag.",
+             "without installing them, use --pipewire-confd-dir DIR "
+             "--no-activate in place of this flag.",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
@@ -235,7 +234,7 @@ def _uninstall(args) -> int:
     """``--uninstall``: the chains, restarted away unless --no-activate, as
     installing them is; then the EasyEffects pointer the converter prints."""
     from lib.pipewire import uninstall as pw_uninstall
-    rc = pw_uninstall.run(args.output_dir, dry_run=args.dry_run,
+    rc = pw_uninstall.run(args.pipewire_confd_dir, dry_run=args.dry_run,
                        assume_yes=args.yes, restart=not args.no_activate)
     ee_to_pipewire.point_to_easyeffects_uninstall()
     return rc
@@ -257,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
     # is the one that fires, so the refusal is rendered once, here.
     console.refuse_root()
 
-    if uninstall.requested(parser, args, {"output_dir", "no_activate"}):
+    if uninstall.requested(parser, args,
+                           {"pipewire_confd_dir", "no_activate"}):
         return _uninstall(args)
 
     # Pre-check the one cross-flag rule the generator enforces post-parse,
@@ -488,17 +488,11 @@ def main(argv: list[str] | None = None) -> int:
             step2_common.append("--dry-run")
         if args.no_color:
             step2_common.append("--no-color")
+        # The folder the child writes to, read the way the child reads it.
+        out_dir = ee_to_pipewire.confd_dir(args.pipewire_confd_dir)
         for preset in presets:
             node_name = conf._safe_node_name(preset.stem)
             child_argv = [str(preset)] + step2_common
-            if args.output_dir is not None:
-                # Absolute, or the conf embeds a relative IRS path that
-                # PipeWire would resolve against its own CWD and miss.
-                out_dir = args.output_dir.expanduser().resolve()
-                child_argv += ["--output", str(out_dir / f"{node_name}.conf")]
-            out_dir = (args.output_dir.expanduser().resolve()
-                       if args.output_dir is not None
-                       else checks.DEFAULT_PW_CONFD_DIR.expanduser())
             written.append(out_dir / f"{node_name}.conf")
             # The .irs the converter copies beside the conf is part of the
             # install too — an undo that only removes the conf strands one

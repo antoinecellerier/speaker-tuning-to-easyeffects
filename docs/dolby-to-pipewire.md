@@ -66,8 +66,8 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   `python3 dolby_to_pipewire.py --uninstall`. It lists every conf this tool
   installed in PipeWire's config folders, plus the `.irs` copied beside each. It
   asks before removing them, then restarts PipeWire. If you installed with
-  `--output-dir`, pass the same flag again; it restarts nothing when that folder
-  is one PipeWire doesn't read. Add `--dry-run` to see the list
+  `--pipewire-confd-dir`, pass the same flag again; it restarts nothing when
+  that folder is one PipeWire doesn't read. Add `--dry-run` to see the list
   only, or `--no-activate` to skip the restart. Files of your own are kept.
   Removed files go to the Trash when `gio` is installed. To remove only one
   run's files, run the two lines that run printed after "To undo".
@@ -298,8 +298,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 **Output**
 - `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` or
   `Sonitude`, as in `Dolby_Balanced` or `Sonitude_Music`)
-- `--output-dir DIR` — directory for the generated `.conf` and `.irs` copy
-  (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--pipewire-confd-dir DIR` — folder for the generated `.conf` and `.irs`
+  copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
 - `--force` — overwrite existing conf and `.irs` files
 
 **Activation**
@@ -328,7 +328,7 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   Nothing is written outside the staging directory, except a driver download's
   tuning files unpacked into `driver-cache/` or the XDG cache, and PipeWire
   is not restarted.
-  To keep the confs, use `--output-dir DIR --no-activate` instead.
+  To keep the confs, use `--pipewire-confd-dir DIR --no-activate` instead.
 - `--no-validate` — skip the pre-write checks: the `lv2info` schema self-check
   and PipeWire's own LV2 support
 - `--no-color` — disable colored terminal output
@@ -363,8 +363,8 @@ and `dolby_to_pipewire.py` runs it for you.
   [Headphones on the speakers' sink](ee-to-pipewire.md#headphones-on-the-speakers-sink).
 
 **Output**
-- `--output PATH` — output `.conf` path (default:
-  `~/.config/pipewire/pipewire.conf.d/<node-name>.conf`)
+- `--pipewire-confd-dir DIR` — folder for `<node-name>.conf` and its `.irs`
+  copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name
   and human-readable label (default: derived from the preset filename stem).
   Converting several presets then yields distinct sinks.
@@ -382,8 +382,8 @@ and `dolby_to_pipewire.py` runs it for you.
 **Uninstall**
 - `--uninstall` — remove the filter-chain confs and `.irs` copies this tool
   installed, after listing them and asking. Your own files are kept. It prints
-  the PipeWire restart rather than running it. With `--output`, it looks in that
-  file's folder.
+  the PipeWire restart rather than running it. With `--pipewire-confd-dir`, it
+  looks in that folder.
 - `--yes` — with `--uninstall`, don't ask first
 
 **General**
@@ -391,7 +391,8 @@ and `dolby_to_pipewire.py` runs it for you.
   plugin `lv2info` can't load, or one whose LV2 plugins PipeWire itself can't
   load.
 - `--dry-run` — report where the conf and impulse response would be written
-  without writing them. To keep the conf, use `--output` instead.
+  without writing them. To keep the conf, use `--pipewire-confd-dir`
+  instead.
 - `--skip-next-steps` — replace the post-write next-steps checklist with a
   one-line activation pointer, for callers that handle activation themselves.
   `dolby_to_pipewire.py` passes it automatically.

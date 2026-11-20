@@ -13,6 +13,9 @@
 set -euo pipefail
 
 NODE_NAME="${1:-Dolby_PW_Test}"
+# The converter names the conf after the sanitised node name; match it, or
+# the path this script reports and teardown removes isn't the file written.
+NODE_NAME="${NODE_NAME//[^A-Za-z0-9_]/_}"
 PID_FILE="/tmp/pw_chain.${NODE_NAME}.pid"
 CONF_PATH="${HOME}/.config/pipewire/filter-chain.conf.d/${NODE_NAME}.conf"
 LOG_FILE="/tmp/pw_chain.${NODE_NAME}.log"

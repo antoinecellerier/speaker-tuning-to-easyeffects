@@ -1873,7 +1873,7 @@ def test_easyeffects_running_warns_it_processes_twice(silence_console, capsys):
     # The switch-back story, delivered at the moment both chains coexist, as
     # a command: --uninstall removes the chains and restarts PipeWire.
     assert "dolby_to_pipewire.py --uninstall" in out
-    assert "--output-dir" not in out
+    assert "--pipewire-confd-dir" not in out
 
 
 def test_easyeffects_switch_back_names_a_non_default_conf_dir(
@@ -1882,7 +1882,7 @@ def test_easyeffects_switch_back_names_a_non_default_conf_dir(
     needs its folder on the line, or the command finds nothing."""
     silence_console(console)
     checks.warn_if_easyeffects_running(running=True, conf_dir=tmp_path)
-    assert f"--uninstall --output-dir {tmp_path}" in capsys.readouterr().out
+    assert f"--uninstall --pipewire-confd-dir {tmp_path}" in capsys.readouterr().out
 
 
 def test_no_easyeffects_process_stays_silent(silence_console, capsys,

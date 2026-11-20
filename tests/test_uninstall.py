@@ -558,12 +558,12 @@ def test_wrapper_round_trip_empties_its_output_dir(tree, tmp_path, capsys):
     out = tmp_path / "confs"
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     assert dolby_to_pipewire.main(
-        [str(xml), "--output-dir", str(out), "--target-sink", "",
+        [str(xml), "--pipewire-confd-dir", str(out), "--target-sink", "",
          "--no-activate", "--no-validate", "--no-color"]) == 0
     assert list(out.iterdir())
     capsys.readouterr()
     assert dolby_to_pipewire.main(
-        ["--uninstall", "--yes", "--no-activate", "--output-dir", str(out),
+        ["--uninstall", "--yes", "--no-activate", "--pipewire-confd-dir", str(out),
          "--no-color"]) == 0
     assert list(out.iterdir()) == []
     # A folder of the reader's own loads nowhere: no restart to ask for.
@@ -1038,7 +1038,7 @@ def test_undo_leads_with_uninstall_only_when_it_removes_just_this_run(
     install._print_undo([conf, irs])
     out = capsys.readouterr().out
     assert out.startswith("  To undo: ") and "--uninstall" in out, out
-    assert f"--output-dir {tmp_path}" in out
+    assert f"--pipewire-confd-dir {tmp_path}" in out
     assert "rm '" not in out
 
     _conf(tmp_path, "Dolby_Warm")
