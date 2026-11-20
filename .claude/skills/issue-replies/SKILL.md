@@ -20,12 +20,19 @@ investigation, so validate cheap claims while investigating.
 ## Process
 
 - Draft the reply as a file in `localresearch/issue<N>/reply-<k>.md`. Run the
-  checklist under "Review the draft before showing it", then show it for
-  review.
-- Re-read the thread with `gh issue view N --comments` before drafting and
-  again before posting (`gh pr view N --comments` for a PR). The user often
+  cold read, then the checklist under "Review the draft before showing it",
+  then show it for review.
+- Before drafting and again before posting, save the thread to
+  `localresearch/issue<N>/thread-<k>.txt` and read it: `gh issue view N` for
+  the opening post, then `gh issue view N --comments` appended, since the
+  second prints the comments alone (`gh pr view` for a PR). The user often
   replies too, and reporters' messages cross ours, so build on what is there
   and never repeat it.
+- Read how this reporter took earlier replies, here and in their other
+  threads in the repo
+  (`gh search issues --involves <login> --repo antoinecellerier/speaker-tuning-to-easyeffects`).
+  A remark that one was hard to follow means a shorter reply than the budget
+  below.
 - Post with `gh` only when explicitly told to ("post it"), because the user
   often posts themselves. Re-read the draft file first, because the user
   edits it.
@@ -38,7 +45,9 @@ investigation, so validate cheap claims while investigating.
 ## Assert only what you validated
 
 - State as fact only what was checked this session. Phrase everything else as
-  a hypothesis, paired with the experiment that will confirm or refute it.
+  a hypothesis, once and briefly where it applies ("That is my reading of the
+  module; I can't test it."), paired with the experiment that will confirm or
+  refute it. The reasoning behind it stays in the research log.
   Checking is often cheaper than hedging. In #39, reading Valve's published
   kernel tree at the reporter's exact build turned "your kernel probably lacks
   the fix" into a verified fact.
@@ -116,17 +125,22 @@ sentences that go first are the ones listed below.
   - an explanation already given in an earlier comment: refer back to it in
     a clause instead of restating it;
   - a side topic they didn't take up, or a fix that doesn't affect them.
-- Use plain words for what they will hear or see. Keep a number only where it
-  changes what they do or answers one they quoted, and drop tables of
+- Use plain words for what they will hear or see, and the reporter's own
+  words for things. Our names for internals, such as hook, fragment, staged
+  or bypass, stay out unless they type or click them. Keep a number only where
+  it changes what they do or answers one they quoted, and drop tables of
   internals such as per-zone thresholds or the chain order. "Our ears hear
   bass differently at different volumes, so a volume difference alone can
   sound like a bass difference" explains a result in terms they can check.
 - Match the register to the report. A technical report gets a technical
   reply, in the same plain structure.
-- Shape: the @-mention, the result in a sentence or two, then the ask. With
-  several findings, give each a short bold label of a few words, not a bold
-  sentence. A short reply is plain paragraphs. Make counts match the
-  structure: a reply that says "three things" has exactly three sections.
+- Shape: the @-mention, the result in a sentence or two, then the ask as a
+  question. The question comes before any numbered step. Budget: two short
+  paragraphs before the steps, and one clause of why per step.
+- Outside the numbered steps, a reply is plain paragraphs. Bold labels are
+  for three or more separate topics: a few words each, not a bold sentence.
+  Make counts match the structure: a reply that says "three things" has
+  exactly three sections.
 - Thank them at most once per reply, for what this round brought. Skip it
   when the previous comment already thanked them for the same thing.
 - Write in the first person ("I removed…", "helps me"). Be warm and
@@ -173,12 +187,13 @@ sentences that go first are the ones listed below.
 - Give one go-back line for a change that persists, such as a rebuilt preset
   or a removed package. Leave out cleanup of throwaway files. A toggle that
   would leave their sound broken, such as EasyEffects bypass, gets its line.
-- Give each ask its expected result, on screen or by ear. For on-screen
-  results, quote the exact string the script prints, checked in the source.
-  Name the outcomes that change what we do next, and for anything else ask
-  them to paste the output. A setup or restore step needs no result line. If
-  something they will see reads ambiguously, fix it in the code before
-  asking.
+- Give each step whose outcome decides our next move its expected result, on
+  screen or by ear. For on-screen results, quote the exact string the script
+  prints, checked in the source. Name the outcomes that change what we do
+  next, and for anything else ask them to paste the output. A step that only
+  prepares, such as adding a flag, moving a file, rebuilding or restoring,
+  needs no result line. If something they will see reads ambiguously, fix it
+  in the code before asking.
 - Design the ask so the reporter exercises the code path you need validated.
   Mention an easier workaround only as a failover, or the shortcut is what
   gets tested. In #33, autoload came first and the direct file path was the
@@ -236,19 +251,65 @@ sentences that go first are the ones listed below.
   `github.com/torvalds/linux` commit URLs over `git.kernel.org`, which blocks
   anonymous fetches.
 
+## Cold read
+
+Every reply gets a cold read: its reader has only the thread, and whoever
+drafted it cannot tell what else the reply leans on.
+
+Dispatch one `model: sonnet` reader with the absolute paths of the thread
+file saved under "Process" and of the draft, and the prompt below: a less
+capable reader is a more faithful proxy for the person replied to.
+Give it nothing that was never posted: no plan, no summary, no definition of
+a term.
+
+Fill `<login>` with the account the reply is addressed to. Fill `<situation>`
+with what they last did, as a full clause that says nothing about the answer:
+"reported that the tool's sound plays on your headphones", "sent a pull
+request", "asked how to install it". For a reply read by someone other than
+the thread's author, describe that reader.
+
+```
+You are <login>. On an open-source tool's GitHub page, you <situation>, and
+its maintainer has just replied. You can use a terminal and copy-paste
+commands. Read these two files and run nothing:
+<abs path of the thread>   the conversation so far; <login>'s messages are
+                           yours
+<abs path of the draft>    the new reply
+
+Answer in under 200 words, about the new reply only. "None" is a full
+answer to 2, 3 or 4:
+1. In one sentence each: what are you being told, and what, if anything, are
+   you being asked to do?
+2. Which one step are you most likely to skip or get wrong, and why? Then any
+   others.
+3. Which words or sentences did you have to read twice?
+4. What is in the reply that you did not need, or had already been told?
+```
+
+Fix what it misreads or would skip, starting with the step it names first,
+and cut what it did not need. It lists something for almost any reply, so
+weigh each item: an ambiguous step needs a fix, but every ask the plan calls
+for stays, even one it would skip or did not need. A term it reads twice is
+one of ours: replace it with the word `<login>` used, or the plainest one.
+
 ## Review the draft before showing it
 
 Check each line, and revise and re-check until all hold:
 
 - [ ] The thread is re-read, and nothing repeats what the user or the reporter
   already said.
-- [ ] Every sentence helps the reporter act or understand their result, and
-  a second cutting pass removed nothing more.
+- [ ] Every sentence helps the reporter act or understand their result.
+- [ ] From the first two paragraphs and the numbered steps alone, the
+  reporter can say what they are asked to do and why.
+- [ ] The ask is a question placed before the steps, and bold labels appear
+  only with three or more topics.
+- [ ] The cold read is done, and re-run after any change to the ask or the
+  steps.
 - [ ] No `<details>`, and at most one footnote, holding evidence only.
 - [ ] Every command copy-pastes as written from where their last run started,
   and every lasting change has a go-back line.
-- [ ] Every ask says what result to expect, with on-screen strings checked
-  in the source, and no step the tool needs is missing.
+- [ ] Each deciding step says what result to expect, with on-screen strings
+  checked in the source, and no step the tool needs is missing.
 - [ ] No invented paths or folder names, and a menu step wherever a menu
   does the job.
 - [ ] Every claim is validated this session or framed as a hypothesis, and
