@@ -14,15 +14,15 @@ write time: it is the stacked-chain diagnosis of ``check_stacked_chains``,
 asked of the confs on disk instead of the live graph, and it reads them through
 the same ``installed_confs``.
 
-``DEFAULT_OUTPUT_DIR`` is defined here too, beside the ``_UNSCANNED_CONF_DIR``
-it is the counterpart of. Every check that names the directory reads it here
-(``check_conf_directory``, ``gather_pw_doctor``, ``_environment_lines``). It
-is also the one constant the suite patches to point the doctor at a temporary
-tree, so it has to be one binding, not a name copied in from elsewhere. Its
-readers outside are the two converters, which import this module either way:
-``ee_to_pipewire.py`` reaches it through ``default_conf_path``, and
-``dolby_to_pipewire.py`` spells it twice, for ``--output-dir``'s help default
-and again in ``main``.
+``DEFAULT_PW_CONFD_DIR`` is defined here too, beside the
+``_UNSCANNED_CONF_DIR`` it is the counterpart of. Every check that names the
+directory reads it here (``check_conf_directory``, ``gather_pw_doctor``,
+``_environment_lines``). It is also the one constant the suite patches to
+point the doctor at a temporary tree, so it has to be one binding, not a name
+copied in from elsewhere. Its readers outside are the two converters, which
+import this module either way: ``ee_to_pipewire.py`` reaches it through
+``default_conf_path``, and ``dolby_to_pipewire.py`` spells it twice, for
+``--output-dir``'s help default and again in ``main``.
 
 The report vocabulary comes from ``lib/doctor.py``, shared with the
 EasyEffects doctor so the two read as one tool: PASS/WARN/FAIL/UNKNOWN,
@@ -81,7 +81,7 @@ from lib.report import speaker as gen
 # `pipewire -c filter-chain.conf` invocation pattern, used by the
 # measurement rig). Drop the conf in pipewire.conf.d/ so the running
 # daemon picks it up on the next restart.
-DEFAULT_OUTPUT_DIR = xdg.config_home() / "pipewire" / "pipewire.conf.d"
+DEFAULT_PW_CONFD_DIR = xdg.config_home() / "pipewire" / "pipewire.conf.d"
 
 
 # --- PipeWire-side diagnostics (--doctor) -----------------------------------
@@ -101,7 +101,7 @@ DEFAULT_OUTPUT_DIR = xdg.config_home() / "pipewire" / "pipewire.conf.d"
 # daemon: the stock pipewire.conf auto-includes pipewire.conf.d/, while
 # filter-chain.conf.d/ is for the standalone `pipewire -c filter-chain.conf`
 # invocation and is never scanned by the running daemon (see
-# DEFAULT_OUTPUT_DIR). It is not dead either way: the stock
+# DEFAULT_PW_CONFD_DIR). It is not dead either way: the stock
 # filter-chain.service runs that standalone invocation and does read it, so a
 # conf there is live for anyone running that unit, which is why the check
 # below offers moving it rather than declaring it inert.
@@ -115,7 +115,7 @@ def live_conf_dirs() -> tuple[Path, Path]:
     to remove a file a conf names: a convolver whose file is gone stops the
     whole conf loading, whichever unit was loading it. A function so a test
     can repoint either directory."""
-    return (DEFAULT_OUTPUT_DIR, _UNSCANNED_CONF_DIR)
+    return (DEFAULT_PW_CONFD_DIR, _UNSCANNED_CONF_DIR)
 
 # effect_input.X and effect_output.X are the two halves of chain X. In
 # smart-filter mode node.link-group joins them; the v1 virtual-sink conf sets
@@ -614,7 +614,7 @@ def check_crowded_chains(chains, confs) -> CheckResult | None:
             "selecting one sends the others' sound through it.")
     detail += (f" If your audio ever cuts out like that, delete the .conf "
                f"and .irs of the ones you don't use from "
-               f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} ({', '.join(ours)}).")
+               f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} ({', '.join(ours)}).")
     # One remedy only: re-running without --target-sink '' would depend on how
     # the conf went v1 and on WirePlumber 0.5+, so it stays out of a check
     # whose fix is keeping one.
@@ -1070,7 +1070,7 @@ def check_conf_directory() -> CheckResult | None:
         f"{len(strays)} conf(s) are in {doctor.tilde(_UNSCANNED_CONF_DIR)}, which "
         "the PipeWire daemon itself doesn't read (only the optional "
         "filter-chain.service does). This tool installs into "
-        f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — move them there and restart "
+        f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} — move them there and restart "
         "PipeWire, or leave them if you run filter-chain.service on purpose.")
 
 
@@ -1481,7 +1481,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # "Confs: N" and, because it shares a node name with the real one, let
     # "Chains loaded" pass for a file that had loaded for nobody
     # (test_unread_directory_confs_are_not_counted_as_installed).
-    confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
+    confs = installed_confs(DEFAULT_PW_CONFD_DIR.expanduser())
     running = version.get_version()
     wireplumber = (wireplumber_running_version(dump)
                    or session.wireplumber_version())
@@ -1537,7 +1537,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         checks.insert(0, CheckResult(
             DOCTOR_WARN, "Installed confs",
             f"no filter-chain conf from this tool in "
-            f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run "
+            f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} — run "
             f"{invocation.script('dolby_to_pipewire.py')} on your tuning file "
             f"or driver download (or {invocation.script('ee_to_pipewire.py')} "
             "on a preset) first; confs written elsewhere with --output aren't "
@@ -1583,7 +1583,7 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     hang = " " * layout.GUTTER
     lines = [
         layout.row("Confs",
-                   f"{len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
+                   f"{len(confs)} in {doctor.tilde(DEFAULT_PW_CONFD_DIR)}",
                    layout.GUTTER),
     ]
     for c in confs:
@@ -1741,8 +1741,8 @@ def uninstall_command(conf_dir: Path | None = None) -> str:
     there. ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py``
     because it also restarts PipeWire, which unloads what it removed."""
     extra = ()
-    if (conf_dir is not None
-            and Path(conf_dir).expanduser() != DEFAULT_OUTPUT_DIR.expanduser()):
+    if (conf_dir is not None and Path(conf_dir).expanduser()
+            != DEFAULT_PW_CONFD_DIR.expanduser()):
         extra = ("--output-dir", str(conf_dir))
     return uninstall.command("dolby_to_pipewire.py", "--uninstall", *extra)
 

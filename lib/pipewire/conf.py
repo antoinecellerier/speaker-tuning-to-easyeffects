@@ -369,7 +369,7 @@ def format_conf(stages: list[Stage], links: list[dict],
         args["playback.props"]["target.object"] = target_object
     # `nofail` keeps a chain that cannot load from taking the daemon with
     # it. This conf is a pipewire.conf.d/ drop-in, so it loads in the
-    # daemon's own context (see checks.DEFAULT_OUTPUT_DIR): without the flag
+    # daemon's own context (see checks.DEFAULT_PW_CONFD_DIR): without the flag
     # one missing LV2 plugin aborts context creation and PipeWire never
     # starts, leaving the machine with no audio at all rather than no filter.
     # `ifexists` covers the module itself being absent. Both are PipeWire's

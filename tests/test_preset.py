@@ -311,7 +311,7 @@ def hermetic_referrers(tmp_path, monkeypatch):
     — so point every one at tmp, or the dev machine's real files decide
     what a test keeps."""
     from lib.pipewire import checks
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "pw")
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "pw")
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "pw_fc")
     monkeypatch.setattr(ee_paths, "DEFAULT_OUTPUT_DIR", tmp_path / "live_out")
     monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC", tmp_path / "db" / "easyeffectsrc")

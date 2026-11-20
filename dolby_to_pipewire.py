@@ -137,7 +137,7 @@ def _compose_parser(argv=None):
         type=Path,
         default=None,
         help=f"directory for the generated .conf and .irs copy (default: "
-             f"{doctor.tilde(checks.DEFAULT_OUTPUT_DIR)}). Filenames derive "
+             f"{doctor.tilde(checks.DEFAULT_PW_CONFD_DIR)}). Filenames derive "
              f"from the preset name, such as Dolby_Balanced.conf.",
     )
     step2_actions += ee_to_pipewire.add_output_args(group, only={"--force"})
@@ -498,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                 child_argv += ["--output", str(out_dir / f"{node_name}.conf")]
             out_dir = (args.output_dir.expanduser().resolve()
                        if args.output_dir is not None
-                       else checks.DEFAULT_OUTPUT_DIR.expanduser())
+                       else checks.DEFAULT_PW_CONFD_DIR.expanduser())
             written.append(out_dir / f"{node_name}.conf")
             # The .irs the converter copies beside the conf is part of the
             # install too — an undo that only removes the conf strands one

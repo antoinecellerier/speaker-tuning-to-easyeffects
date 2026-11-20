@@ -1071,7 +1071,7 @@ def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
                         lambda: session.Version(text="0.5", parts=(0, 5)))
     monkeypatch.setattr(session, "pipewire_version",
                         lambda: session.Version(text="1.0", parts=(1, 0)))
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
 
     _results, _confs, _chains, facts = checks.gather_pw_doctor()
@@ -1195,7 +1195,7 @@ def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
     monkeypatch.setattr(checks, "_probe_plugins",
                         lambda: checks.PluginProbe(
                             entries=(("LSP PEQ", "http://lsp-plug.in/x", True),)))
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     # A conf on disk that names that plugin: "Chains loaded" needs one to have
     # anything to report, and the LV2 check now judges what the confs ask for,
@@ -1539,7 +1539,7 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     # of it, and an empty probe is the "nothing was asked" shape — which
     # the LV2 plugins check must not turn into an all-clear.
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     # Ours, as read back, so the check has a file to name and a delete to
     # finish. Stubbed: with the machine off, spa-json-dump reads no node name.
@@ -1585,7 +1585,7 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
     monkeypatch.setattr(session, "pipewire_version",
                         lambda: session.Version(text="1.0", parts=(1, 0)))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     # Stubbed rather than probed: the sequence is the assertion here, and the
     # real hardware block differs line for line per machine.
@@ -1639,7 +1639,7 @@ def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
         session, "pipewire_version",
         lambda: session.Version(reason="no answer from pw-cli"))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     silence_console(console)
 
@@ -1670,7 +1670,7 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     body = conf.CONF_HEADER_MARK + " — see\ncontext.modules = []\n"
     (scanned / "Dolby_Balanced.conf").write_text(body)
     (unread / "Dolby_Balanced.conf").write_text(body)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", scanned)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", scanned)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", unread)
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
     monkeypatch.setattr(session, "wireplumber_version",
@@ -1716,7 +1716,7 @@ def test_the_versions_are_probed_once_per_run(tmp_path, monkeypatch):
             lambda: (pw_calls.append(1),
                      session.Version(text="1.0", parts=(1, 0)))[1])
         monkeypatch.setattr(checks, "_pw_dump", lambda: [])
-        monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+        monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
         monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
         results, _confs, _chains, facts = checks.gather_pw_doctor()
         wireplumber = [c for c in results if c.label == "WirePlumber"]
@@ -1950,7 +1950,7 @@ def _pw_check_block(check, monkeypatch, tmp_path, capsys) -> list[str]:
                                  {"version": "0.0-test",
                                   "sinks": []}))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
 
     assert checks.report_pw_doctor() == 0
     lines = capsys.readouterr().out.split("Summary:")[0].splitlines()
@@ -2017,7 +2017,7 @@ def test_pw_doctor_summary_counts_the_lines_it_printed(tmp_path, monkeypatch,
                         lambda: (results, [], [], {"version": "0.0-test",
                                                    "sinks": []}))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
 
     checks.report_pw_doctor()
     counted = assert_summary_counts_the_printed_lines(capsys.readouterr().out)
@@ -2309,7 +2309,7 @@ def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):
                         lambda: session.Version(text="0.5", parts=(0, 5)))
     monkeypatch.setattr(session, "pipewire_version",
                         lambda: session.Version(text="1.0", parts=(1, 0)))
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     monkeypatch.setattr(checks, "_probe_plugins", lambda: {})
     spk = _node(SPEAKER, **{"media.class": "Audio/Sink",

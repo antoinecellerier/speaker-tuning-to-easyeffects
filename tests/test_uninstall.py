@@ -41,7 +41,7 @@ def tree(tmp_path, monkeypatch):
     monkeypatch.setattr(ee_paths, "DEFAULT_IRS_DIR", base / "irs")
     monkeypatch.setattr(ee_paths, "DEFAULT_AUTOLOAD_DIR", base / "autoload" / "output")
     monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC", rc)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "pw")
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "pw")
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "pw_fc")
     monkeypatch.setattr(uninstall, "trash_available", lambda: False)
     return base
@@ -824,7 +824,7 @@ def test_a_symlinked_default_dir_does_not_hold_its_own_copies(tree, tmp_path, mo
     copy = real / "Dolby_Balanced.irs"
     copy.write_bytes(b"RIFF")
     link.symlink_to(real)
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", link)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", link)
     assert _planned(pw_uninstall.plan(real)) == {conf, copy}
 
 
@@ -867,7 +867,7 @@ def test_each_install_is_checked_against_its_own_settings(tmp_path, monkeypatch)
                         lambda: (("native", native, native_rc),
                                  ("Flatpak", flatpak, tmp_path / "f" / "easyeffectsrc")))
     monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC", tmp_path / "f" / "easyeffectsrc")
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "pw")
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "pw")
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "pw_fc")
     args = dolby_to_easyeffects.build_parser().parse_args(["--uninstall"])
     assert irs not in _planned(ee_uninstall.plan(args))

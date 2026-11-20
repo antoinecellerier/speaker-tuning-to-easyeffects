@@ -543,11 +543,11 @@ def _pw_scenario(slug: str):
     staging dir back to the directory the portrayed run installed into: the
     rendered rows then name the path a reader's report would."""
     spec = PW_SCENARIOS[slug]
-    saved = (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+    saved = (checks._pw_dump, checks.DEFAULT_PW_CONFD_DIR,
              checks._UNSCANNED_CONF_DIR, doctor.tilde,
              session.read_settings, session.read_xruns, session.process_age,
              port_hook.installed, sinks.output_port_lines)
-    real_dir, real_tilde = checks.DEFAULT_OUTPUT_DIR, doctor.tilde
+    real_dir, real_tilde = checks.DEFAULT_PW_CONFD_DIR, doctor.tilde
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp)
         for name, mode in spec["chains"]:
@@ -562,7 +562,7 @@ def _pw_scenario(slug: str):
 
         try:
             checks._pw_dump = lambda: dump
-            checks.DEFAULT_OUTPUT_DIR = staged
+            checks.DEFAULT_PW_CONFD_DIR = staged
             # filter-chain.conf.d too: its check reads that directory, and the
             # capture machine's own would add a WARN no scenario describes.
             checks._UNSCANNED_CONF_DIR = staged / "filter-chain.conf.d"
@@ -585,7 +585,7 @@ def _pw_scenario(slug: str):
                 sinks.sinks_from_dump(dump))
             yield
         finally:
-            (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+            (checks._pw_dump, checks.DEFAULT_PW_CONFD_DIR,
              checks._UNSCANNED_CONF_DIR, doctor.tilde,
              session.read_settings, session.read_xruns,
              session.process_age, port_hook.installed,

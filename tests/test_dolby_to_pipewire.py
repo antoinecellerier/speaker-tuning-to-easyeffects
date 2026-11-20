@@ -160,7 +160,7 @@ def recorders(monkeypatch, tmp_path):
     The install directory is a tmp dir: it is computed at import, so a run
     without --output-dir would otherwise read the real one, and the confs
     on the machine running the suite would decide what these tests see."""
-    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "conf.d")
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "conf.d")
     # Warm the git-describe version cache before the recorder hooks in:
     # whichever test runs first in a fresh worker would otherwise record
     # the one-time version lookup and fail the no-subprocess assertions.

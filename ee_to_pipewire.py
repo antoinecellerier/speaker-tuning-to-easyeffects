@@ -118,7 +118,7 @@ def default_conf_path(node_name: str) -> Path:
     $HOME back to ``~`` on the way out. That is the help's business, not this
     function's, which owes its other two readers a real ``Path``.
     """
-    return (checks.DEFAULT_OUTPUT_DIR / f"{node_name}.conf").expanduser()
+    return (checks.DEFAULT_PW_CONFD_DIR / f"{node_name}.conf").expanduser()
 
 
 def add_output_args(container, *, only=None):

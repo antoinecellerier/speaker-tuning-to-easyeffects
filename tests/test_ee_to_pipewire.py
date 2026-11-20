@@ -3193,7 +3193,7 @@ def test_pipewire_drop_in_dirs_follow_xdg_config_home(tmp_path):
     filter silently does nothing, with no file out of place to notice."""
     config = tmp_path / "xdg-config"
     probe = ("from lib.pipewire import checks\n"
-             "print(checks.DEFAULT_OUTPUT_DIR)\n"
+             "print(checks.DEFAULT_PW_CONFD_DIR)\n"
              "print(checks._UNSCANNED_CONF_DIR)\n")
     env = {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(config)}
     env.pop("XDG_DATA_HOME", None)

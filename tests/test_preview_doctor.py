@@ -398,14 +398,14 @@ def test_pw_rendered_block_never_names_the_staging_tree(slug, capsys,
 
 def test_pw_scenario_restores_every_probe_even_when_the_body_raises():
     from lib import doctor
-    before = (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+    before = (checks._pw_dump, checks.DEFAULT_PW_CONFD_DIR,
               checks._UNSCANNED_CONF_DIR, doctor.tilde,
               session.read_settings, session.read_xruns, session.process_age)
     with pytest.raises(RuntimeError):
         with preview_doctor._pw_scenario("pw-stacked"):
             assert checks._pw_dump is not before[0]
             raise RuntimeError("boom")
-    assert (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+    assert (checks._pw_dump, checks.DEFAULT_PW_CONFD_DIR,
             checks._UNSCANNED_CONF_DIR, doctor.tilde,
             session.read_settings, session.read_xruns,
             session.process_age) == before

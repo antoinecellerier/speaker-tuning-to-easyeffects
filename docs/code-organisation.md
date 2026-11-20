@@ -50,17 +50,15 @@ web blame won't. The rules below exist to mitigate that.
   writes its files" are the same diff, under a subject line promising nothing
   changed.
 
-  `DEFAULT_OUTPUT_DIR` is the worked example, and it is live in this repo today.
-  `lib/ee_paths.py` resolves it to `~/.local/share/easyeffects/output`, the
-  EasyEffects preset directory. `lib/pipewire/checks.py` resolves it to
+  The default directories are the worked example. `ee_paths.DEFAULT_OUTPUT_DIR`
+  resolves to `~/.local/share/easyeffects/output`, the EasyEffects preset
+  directory. `checks.DEFAULT_PW_CONFD_DIR` resolves to
   `~/.config/pipewire/pipewire.conf.d`, PipeWire's drop-in directory. Both take
-  their XDG root from `lib/xdg.py`: one helper, still two trees. A reviewer
-  scanning a move commit for "one name defined twice, now visible in one
-  package" finds them, right about the name and wrong about the value. The
-  commit that unifies them redirects every conf this repo writes while claiming
-  to have moved some lines. One file over, `DEFAULT_IRS_DIR` *was* the same path
-  written twice, and it did collapse, in a commit of its own. The two cases are
-  indistinguishable by name and separated only by resolving both.
+  their XDG root from `lib/xdg.py`: one helper, still two trees. A commit that
+  unifies them redirects every conf this repo writes while claiming to have
+  moved some lines. One file over, `DEFAULT_IRS_DIR` *was* the same path
+  written twice, and it did collapse, in a commit of its own. Only resolving
+  both tells the two cases apart.
 
   The rule binds on a trim commit, and nothing enforces it afterwards.
   `tools/check_move_purity.py` is a manual gate pointed at one commit. It is in

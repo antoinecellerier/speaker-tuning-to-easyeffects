@@ -332,7 +332,7 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
     if not paths:
         return
     out_dir = paths[0].parent
-    default = out_dir == checks.DEFAULT_OUTPUT_DIR.expanduser()
+    default = out_dir == checks.DEFAULT_PW_CONFD_DIR.expanduser()
     # Where the printed --uninstall will look: every live directory without
     # --output-dir (lib/pipewire/uninstall.py `_dirs`), else that one folder.
     searched = checks.live_conf_dirs() if default else (out_dir,)
