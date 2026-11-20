@@ -1895,6 +1895,10 @@ def warn_if_easyeffects_running(running: bool | None = None,
     left for someone to notice the sound is wrong. ``conf_dir`` is where the
     conf landed, so the way back names the folder ``--uninstall`` must search.
     """
+    # A conf PipeWire doesn't load here, such as a package being built,
+    # processes nothing alongside EasyEffects on this machine.
+    if conf_dir is not None and not is_live_conf_dir(conf_dir):
+        return
     if running is None:
         running = ee_socket.easyeffects_running()
     if not running:

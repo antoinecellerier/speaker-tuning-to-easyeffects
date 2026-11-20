@@ -342,6 +342,33 @@ def _print_undo(written: list[Path], style: str = "dim",
                    + checks.uninstall_command(out_dir, hook_dirs))
 
 
+def _print_built_elsewhere(files: list[Path], head: str = "") -> None:
+    """The closing for files written outside PipeWire's per-user folders
+    (`checks.is_live_conf_dir`), such as a package being built.
+
+    Nothing on this machine loads them, so restarting PipeWire or looking
+    for the sink here would test the wrong machine, and an undo has nothing
+    loaded to undo. What the reader needs is the set of files to install.
+    Absolute, one per line, so they paste into an install step."""
+    # "no sink check", not "nothing checked": the LV2 validation still ran.
+    console.cprint("head", f"{head}Built for another location — no PipeWire "
+                   "restart or sink check on this machine")
+    # The conf names its impulse file by the folder's absolute path
+    # (`ee_to_pipewire.confd_dir` resolves it; trapped by
+    # test_a_relative_confd_dir_bakes_an_absolute_irs_path), so a conf copied
+    # from a staging folder stops loading. A Nix build writes straight into
+    # its final $out, which is why that route works.
+    console._cprint_wrapped(
+        "dim", "  The folder these went to isn't PipeWire's per-user folder. "
+        "The conf names its impulse file by the path given to "
+        "--pipewire-confd-dir, so that must be the folder the files stay "
+        "in, as a Nix package's $out is, not a staging copy. They take "
+        "effect once PipeWire and WirePlumber read these folders and "
+        "PipeWire restarts. The complete set:", indent="  ")
+    for path in files:
+        console.cprint("dim", f"    {path}")
+
+
 def _print_manual_activation(node_names: list[str],
                              written: list[Path],
                              selectable: bool = False,

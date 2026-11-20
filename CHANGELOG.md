@@ -99,11 +99,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   in balance and play slightly quieter. Re-run to regenerate.
   ([#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150);
   why in `docs/research/loudness-and-limiting.md`)
-- Both PipeWire scripts take `--pipewire-confd-dir DIR` for where the conf and
-  its `.irs` go, and `--doctor` reads an install there.
-  `dolby_to_pipewire.py --output-dir` keeps working;
-  `ee_to_pipewire.py --output PATH` is gone, and `--node-name` sets the
-  filename.
+- Both PipeWire scripts take `--pipewire-confd-dir DIR`; a folder other than
+  PipeWire's own gets the files only, with no restart, and `--doctor` reads
+  it. `dolby_to_pipewire.py --output-dir` still works, but where the
+  speaker-port hook applies it also needs the WirePlumber folder flags.
+  `ee_to_pipewire.py --output PATH` is gone: the conf is named after its sink,
+  which `--node-name` sets.
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73))
 
 ### Added

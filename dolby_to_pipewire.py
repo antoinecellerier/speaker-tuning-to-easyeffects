@@ -139,10 +139,10 @@ def _compose_parser(argv=None):
                      "--wireplumber-confd-dir", "--force"})
     # The flag's earlier spelling, kept working for scripts and packages that
     # pass it. Hidden: one name per folder in --help and the docs. Off both
-    # action lists, like --version: the shared action carries the value to
-    # the child under the current name.
-    group.add_argument("--output-dir", dest="pipewire_confd_dir", type=Path,
-                       default=None, help=argparse.SUPPRESS)
+    # action lists, like --version: main() moves its value onto
+    # --pipewire-confd-dir, which carries it to the child.
+    group.add_argument("--output-dir", type=Path, default=None,
+                       help=argparse.SUPPRESS)
 
     group = parser.add_argument_group("activation")
     group.add_argument(
@@ -171,8 +171,9 @@ def _compose_parser(argv=None):
              "the temporary staging directory, except a driver download's "
              "tuning files unpacked into driver-cache/ or the XDG cache, and "
              "PipeWire is not restarted. To get the confs themselves "
-             "without installing them, use --pipewire-confd-dir DIR "
-             "--no-activate in place of this flag.",
+             "without installing them, use --pipewire-confd-dir with a "
+             "folder of your own, and --wireplumber-scripts-dir and "
+             "--wireplumber-confd-dir with two more, in place of this flag.",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
@@ -256,6 +257,12 @@ def main(argv: list[str] | None = None) -> int:
         dolby_to_easyeffects.argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
     ee_to_pipewire.check_wireplumber_dirs(parser, args)
+    if args.output_dir is not None:
+        # Both given, one would win without a word.
+        if args.pipewire_confd_dir is not None:
+            parser.error("--output-dir is the earlier name of "
+                         "--pipewire-confd-dir; pass one of them")
+        args.pipewire_confd_dir = args.output_dir
     if args.no_color:
         console._disable_color()
     # Ahead of the child runs, which carry the same guard: the wrapper's own
@@ -263,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     console.refuse_root()
 
     if uninstall.requested(parser, args, {
-            "pipewire_confd_dir", "wireplumber_scripts_dir",
+            "pipewire_confd_dir", "output_dir", "wireplumber_scripts_dir",
             "wireplumber_confd_dir", "no_activate"}):
         return _uninstall(args)
 
@@ -272,15 +279,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
     # The child refuses this too, but only after step 1's DSP has run. With
-    # `on` the outcome is known now; `auto` learns it from the graph there.
-    if (args.speaker_port_hook == "on" and args.target_sink != ""
+    # `on` and a named sink the outcome is known now; without one the child
+    # may find no sink and ignore `on`, and `auto` learns it from the graph.
+    if (args.speaker_port_hook == "on" and args.target_sink
             and ee_to_pipewire.wireplumber_dirs(args) is None
             and not checks.is_live_conf_dir(
                 ee_to_pipewire.confd_dir(args.pipewire_confd_dir))):
         parser.error("--speaker-port-hook on with a --pipewire-confd-dir "
                      "outside PipeWire's own folders needs "
                      "--wireplumber-scripts-dir and --wireplumber-confd-dir "
-                     "for the hook's two WirePlumber files")
+                     "for the hook's two WirePlumber files, or drop "
+                     "--speaker-port-hook on")
 
     # Chains that share a filter.smart.target are run in SERIES by
     # WirePlumber, not offered as alternatives: get_filter_from_target
@@ -351,6 +360,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     node_names: list[str] = []
+    # Whether any child's conf wanted the speaker-port hook, which the
+    # dry-run closing's keep-the-files command needs WirePlumber folders for.
+    hook_wanted = False
     # Where each conf landed, so the run can say how to undo itself.
     written: list[Path] = []
     closing: list = []
@@ -516,7 +528,10 @@ def main(argv: list[str] | None = None) -> int:
             # install too — an undo that only removes the conf strands one
             # stray file per variant (round-3 review).
             written.append(out_dir / f"{node_name}.irs")
-            rc = ee_to_pipewire.main(child_argv, wrapped=True)
+            outcome: dict = {}
+            rc = ee_to_pipewire.main(child_argv, wrapped=True,
+                                     outcome=outcome)
+            hook_wanted = hook_wanted or outcome.get("hook", False)
             if rc != 0:
                 # Fail fast: a validation failure would repeat identically
                 # for every variant, and an existing-conf collision already
@@ -525,7 +540,12 @@ def main(argv: list[str] | None = None) -> int:
                 return rc
             node_names.append(node_name)
 
-    if args.target_sink == "":
+    # A folder PipeWire doesn't read here, such as a package being built:
+    # restarting would cut sound for files nothing loads, and verifying would
+    # then wait for sinks that never appear. The crowding warning speaks of
+    # this machine's sound settings, which such a folder never reaches.
+    live = checks.is_live_conf_dir(out_dir)
+    if args.target_sink == "" and live:
         # Once for the whole run, which the children can't do: each sees only
         # the confs that landed before it. Ours already there count too, minus
         # the ones this run rewrote, so a --force re-run never counts itself.
@@ -535,19 +555,30 @@ def main(argv: list[str] | None = None) -> int:
                                                             exclude=written)),
             dry_run=args.dry_run)
 
-    # The undo line names the WirePlumber folders only where a hook went: a
-    # run whose conf got none would otherwise print flags the undo doesn't
-    # need.
-    hook_dirs = ee_to_pipewire.wireplumber_dirs(args)
-    if hook_dirs is not None and not port_hook.installed(hook_dirs):
-        hook_dirs = None
+    # The hook counts only if a conf this run wrote relies on it: files left
+    # by an earlier run would otherwise be listed as part of this build, and
+    # the undo would name a flag this install doesn't need.
+    hooked = any(port_hook.MARKER in checks._conf_text(w) for w in written
+                 if w.suffix == ".conf" and w.exists())
+    hook_dirs = (ee_to_pipewire.wireplumber_dirs(args)
+                if hooked else None)
 
     if args.dry_run:
         # "installed", not "written": staging really does write the presets,
         # to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
         # appear above. Claiming nothing was written would contradict them.
+        then = ("install and activate" if live
+                else "write the files there")
         console.cprint("head", "[3/3] Dry run — nothing was installed; re-run without "
-                       "--dry-run to install and activate")
+                       f"--dry-run to {then}")
+        if live:
+            ee_to_pipewire.print_keep_files(hook_wanted)
+        rc = 0
+    elif not live:
+        hook_files = (list(port_hook.paths(hook_dirs)) if hook_dirs is not None
+                      else [])
+        install._print_built_elsewhere(
+            [w for w in written if w.exists()] + hook_files, head="[3/3] ")
         rc = 0
     elif args.no_activate:
         install._print_manual_activation(

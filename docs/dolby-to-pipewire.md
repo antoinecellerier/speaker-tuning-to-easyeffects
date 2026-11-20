@@ -290,10 +290,9 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--speaker-port-hook {auto,on,off}` — also install a WirePlumber hook that
   bypasses the filter while the target sink's active port is not a speaker
   port, for a headphone jack that shares one sink with the speakers (default:
-  `auto`, which installs it when the target sink has a speaker port and another
-  output port). `on`
-  installs it without looking, for a conf built away from the machine it will
-  run on.
+  `auto`, which installs it when the target sink on this machine has a speaker
+  port and another output port). `on` installs it without looking, for a conf
+  built away from the machine it will run on.
 - `--target-object NODE_NAME` — bind the chain's playback to a specific
   downstream node instead of letting WirePlumber choose. Set automatically when
   installing more than one sink.
@@ -301,8 +300,10 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 **Output**
 - `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` or
   `Sonitude`, as in `Dolby_Balanced` or `Sonitude_Music`)
-- `--pipewire-confd-dir DIR` — folder for the generated `.conf` and `.irs`
-  copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--pipewire-confd-dir DIR` — folder for the generated `.conf` and `.irs` copy
+  (default: `~/.config/pipewire/pipewire.conf.d`). Any other folder, such as a
+  package's, only receives the files: PipeWire is not restarted and no sink is
+  looked for.
 - `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
   script, such as a package's `share/wireplumber/scripts` (default:
   `~/.local/share/wireplumber/scripts`)
@@ -310,7 +311,7 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   as a package's `share/wireplumber/wireplumber.conf.d` (default:
   `~/.config/wireplumber/wireplumber.conf.d`). The hook needs both
   WirePlumber folders when `--pipewire-confd-dir` is not one of PipeWire's
-  own folders.
+  own folders: its default, or the `filter-chain.conf.d` beside it.
 - `--force` — overwrite existing conf and `.irs` files
 
 **Activation**
@@ -339,7 +340,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   Nothing is written outside the staging directory, except a driver download's
   tuning files unpacked into `driver-cache/` or the XDG cache, and PipeWire
   is not restarted.
-  To keep the confs, use `--pipewire-confd-dir DIR --no-activate` instead.
+  To keep the confs, use `--pipewire-confd-dir` with a folder of your own,
+  and the two WirePlumber folder flags with two more, instead.
 - `--no-validate` — skip the pre-write checks: the `lv2info` schema self-check
   and PipeWire's own LV2 support
 - `--no-color` — disable colored terminal output
@@ -375,8 +377,10 @@ and `dolby_to_pipewire.py` runs it for you.
   [Headphones on the speakers' sink](ee-to-pipewire.md#headphones-on-the-speakers-sink).
 
 **Output**
-- `--pipewire-confd-dir DIR` — folder for `<node-name>.conf` and its `.irs`
-  copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--pipewire-confd-dir DIR` — folder for `<node-name>.conf` and its `.irs` copy
+  (default: `~/.config/pipewire/pipewire.conf.d`). Any other folder, such as a
+  package's, only receives the files: PipeWire is not restarted and no sink is
+  looked for.
 - `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
   script, such as a package's `share/wireplumber/scripts` (default:
   `~/.local/share/wireplumber/scripts`)
@@ -384,7 +388,7 @@ and `dolby_to_pipewire.py` runs it for you.
   as a package's `share/wireplumber/wireplumber.conf.d` (default:
   `~/.config/wireplumber/wireplumber.conf.d`). The hook needs both
   WirePlumber folders when `--pipewire-confd-dir` is not one of PipeWire's
-  own folders.
+  own folders: its default, or the `filter-chain.conf.d` beside it.
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name
   and human-readable label (default: derived from the preset filename stem).
   Converting several presets then yields distinct sinks.
@@ -411,7 +415,8 @@ and `dolby_to_pipewire.py` runs it for you.
   plugin `lv2info` can't load, or one whose LV2 plugins PipeWire itself can't
   load.
 - `--dry-run` — report where the conf and impulse response would be written
-  without writing them. To keep the conf, use `--pipewire-confd-dir`
+  without writing them. To keep the conf, use `--pipewire-confd-dir` with a
+  folder of your own, and the two WirePlumber folder flags with two more,
   instead.
 - `--skip-next-steps` — replace the post-write next-steps checklist with a
   one-line activation pointer, for callers that handle activation themselves.

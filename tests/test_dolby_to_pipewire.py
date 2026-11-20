@@ -165,7 +165,8 @@ def recorders(monkeypatch, tmp_path):
     # whichever test runs first in a fresh worker would otherwise record
     # the one-time version lookup and fail the no-subprocess assertions.
     version.get_version()
-    calls = SimpleNamespace(step1=[], step2=[], commands=[])
+    # `hook`: what the fake converter reports its conf wanted.
+    calls = SimpleNamespace(step1=[], step2=[], commands=[], hook=False)
 
     def fake_run_cli(argv, closing=None, troubleshooting=None, resolved=None,
                      staged=False):
@@ -194,8 +195,10 @@ def recorders(monkeypatch, tmp_path):
                 (out / f"{stem}.irs").write_bytes(b"")
         return 0
 
-    def fake_ee_main(argv, wrapped=False):
+    def fake_ee_main(argv, wrapped=False, outcome=None):
         calls.step2.append(list(argv))
+        if outcome is not None:
+            outcome["hook"] = calls.hook
         return 0
 
     def fake_subprocess_run(cmd, **kwargs):
@@ -406,22 +409,21 @@ def test_single_v1_run_counts_the_chains_already_there(recorders, monkeypatch,
     """The reporter's path: a voicing set first, then a profile on its own."""
     _fake_v1_confs(monkeypatch, ["Dolby_Detailed.conf", "Dolby_Warm.conf"])
     assert wrapper_main(["--profile", "music", "--target-sink", "",
-                         "--pipewire-confd-dir", str(tmp_path), "--no-activate"]) == 0
+                         "--no-activate"]) == 0
     assert "makes 3 chains" in capsys.readouterr().out
 
 
 def test_rewriting_a_lone_chain_never_counts_itself(recorders, monkeypatch,
                                                     tmp_path, capsys):
     _fake_v1_confs(monkeypatch, ["Dolby_Balanced.conf"])
-    assert wrapper_main(["--target-sink", "", "--pipewire-confd-dir", str(tmp_path),
-                         "--force", "--no-activate"]) == 0
+    assert wrapper_main(["--target-sink", "", "--force", "--no-activate"]) == 0
     assert "separate outputs" not in capsys.readouterr().out
 
 
 def test_smart_filter_runs_never_count_chains(recorders, monkeypatch, tmp_path,
                                               capsys):
     _fake_v1_confs(monkeypatch, ["Dolby_Warm.conf", "Dolby_Detailed.conf"])
-    assert wrapper_main(["--pipewire-confd-dir", str(tmp_path), "--no-activate"]) == 0
+    assert wrapper_main(["--no-activate"]) == 0
     assert "separate outputs" not in capsys.readouterr().out
 
 
@@ -592,7 +594,7 @@ def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
 
 def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
     monkeypatch.setattr(ee_to_pipewire, "main",
-                        lambda argv, wrapped=False:
+                        lambda argv, wrapped=False, outcome=None:
                             (recorders.step2.append(argv) or 1))
     assert wrapper_main(["--variant", "all", "--target-sink", ""]) == 1
     assert len(recorders.step2) == 1
@@ -674,6 +676,7 @@ def test_hook_on_for_a_folder_of_your_own_is_refused_before_step_1(
     assert exc.value.code == 2
     err = " ".join(capsys.readouterr().err.split())
     assert "--wireplumber-scripts-dir and --wireplumber-confd-dir" in err
+    assert "or drop --speaker-port-hook on" in err
     assert recorders.step1 == []
 
 
@@ -682,13 +685,13 @@ def test_undo_names_the_wireplumber_dir_a_hook_went_to(
     """--uninstall looks for the hook only where it is told, so the way back
     carries the folder the hook went to."""
     from lib.pipewire import port_hook
-    confs = tmp_path / "confs"
+    # The recorders' live folder: only a live install prints an undo. The
+    # conf carries the hook's marker, as one the child wrote with it would.
+    confs = tmp_path / "conf.d"
     confs.mkdir()
-    (confs / "Dolby_Balanced.conf").write_text("")
+    (confs / "Dolby_Balanced.conf").write_text(f"{port_hook.MARKER} = true\n")
     wp = (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
-    monkeypatch.setattr(port_hook, "installed", lambda d=None: d == wp)
-    assert wrapper_main(["--pipewire-confd-dir", str(confs),
-                         "--wireplumber-scripts-dir", str(wp[0]),
+    assert wrapper_main(["--wireplumber-scripts-dir", str(wp[0]),
                          "--wireplumber-confd-dir", str(wp[1]),
                          "--no-activate"]) == 0
     undo_line = next(ln for ln in capsys.readouterr().out.splitlines()
@@ -697,10 +700,76 @@ def test_undo_names_the_wireplumber_dir_a_hook_went_to(
             f"--wireplumber-confd-dir {wp[1]}") in undo_line, undo_line
 
 
+def test_a_build_for_elsewhere_never_restarts_pipewire(
+        recorders, monkeypatch, tmp_path):
+    """Without --no-activate too: restarting would cut sound for files
+    nothing here loads, and verifying would wait for sinks that never
+    appear, then report the run as failed."""
+    monkeypatch.setattr(install, "_activate",
+                        lambda *a, **k: pytest.fail("activated a package build"))
+    assert wrapper_main(["--pipewire-confd-dir", str(tmp_path / "pkg")]) == 0
+    assert recorders.commands == []
+
+
+def test_a_stale_hook_is_not_listed_as_part_of_this_build(
+        recorders, tmp_path, capsys):
+    """Hook files an earlier run left in the WirePlumber folders aren't this
+    build's when no conf it wrote relies on them."""
+    from lib.pipewire import port_hook
+    pkg, wp = tmp_path / "pkg", (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
+    pkg.mkdir()
+    (pkg / "Dolby_Balanced.conf").write_text("")
+    stale = port_hook.write(wp)
+    assert wrapper_main(["--pipewire-confd-dir", str(pkg),
+                         "--wireplumber-scripts-dir", str(wp[0]),
+                         "--wireplumber-confd-dir", str(wp[1])]) == 0
+    out = capsys.readouterr().out
+    assert f"    {pkg / 'Dolby_Balanced.conf'}" in out.splitlines()
+    assert not any(str(p) in out for p in stale)
+
+
+def test_hook_on_without_a_named_sink_is_left_to_the_child(recorders):
+    """With no --target-sink the child may find no sink and ignore `on`, so
+    refusing up front would demand a folder the run then calls unused."""
+    assert wrapper_main(["--pipewire-confd-dir", "confs",
+                         "--speaker-port-hook", "on", "--no-activate"]) == 0
+    assert recorders.step1
+
+
+@pytest.mark.parametrize("hook", [False, True])
+def test_dry_run_prints_the_keep_the_files_command(recorders, capsys, hook):
+    """The flags that write the files to a folder of the reader's own, with
+    the WirePlumber folders only where the conf wanted the hook: the real run would
+    refuse without it, and elsewhere it only prints "unused"."""
+    recorders.hook = hook
+    assert wrapper_main(["x.xml", "--profile", "music", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines()
+                if "--pipewire-confd-dir CONF_DIR" in ln)
+    assert ("--wireplumber-scripts-dir WP_SCRIPTS_DIR" in line) is hook
+    assert ("--wireplumber-confd-dir WP_CONFD_DIR" in line) is hook
+
+
+def test_a_dry_run_into_a_folder_of_your_own_needs_no_keep_command(
+        recorders, capsys, tmp_path):
+    assert wrapper_main(["--pipewire-confd-dir", str(tmp_path / "pkg"),
+                         "--dry-run"]) == 0
+    assert "CONF_DIR" not in capsys.readouterr().out
+
+
 def test_hook_on_for_the_live_folder_needs_no_wireplumber_dirs(recorders):
     assert wrapper_main(["--target-sink", "x", "--speaker-port-hook", "on",
                          "--no-activate"]) == 0
     assert recorders.step1
+
+
+def test_the_old_and_new_folder_flag_together_are_refused(recorders, capsys):
+    """One would otherwise win without a word."""
+    with pytest.raises(SystemExit) as exc:
+        wrapper_main(["--output-dir", "a", "--pipewire-confd-dir", "b"])
+    assert exc.value.code == 2
+    assert "earlier name of --pipewire-confd-dir" in capsys.readouterr().err
+    assert recorders.step1 == []
 
 
 def test_a_relative_confd_dir_resolves_absolute(tmp_path, monkeypatch):
@@ -716,15 +785,18 @@ def test_a_relative_confd_dir_resolves_absolute(tmp_path, monkeypatch):
 # End-to-end (subprocess, synthetic XML, isolated HOME)
 # ---------------------------------------------------------------------------
 
-def _run_e2e(tmp_path, *args, env=None):
+def _run_e2e(tmp_path, *args, env=None, live=False):
     """Run the wrapper against the synthetic XML with HOME pointed at an
     empty directory — the no-EE-artifacts claim is asserted against it.
     Always passes --no-activate and --target-sink '' (no pw-dump probe, no
-    PipeWire restart on the developer's machine)."""
+    PipeWire restart on the developer's machine). ``live`` writes into the
+    isolated HOME's PipeWire folder, the install a reader's own run makes;
+    otherwise into a folder of its own, a build for elsewhere."""
     home = tmp_path / "home"
     home.mkdir()
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
-    out = tmp_path / "confs"
+    out = (home / ".config" / "pipewire" / "pipewire.conf.d" if live
+           else tmp_path / "confs")
     result = _run_script(
         str(xml), "--pipewire-confd-dir", str(out), "--target-sink", "",
         "--no-activate", "--no-color", *args,
@@ -815,7 +887,7 @@ def test_e2e_next_steps_checklist_is_consolidated(tmp_path):
     """--no-activate prints the wrapper's single manual block; the
     converter's own checklist stays suppressed (--skip-next-steps) so the
     steps appear exactly once."""
-    result, _home, _out = _run_e2e(tmp_path)
+    result, _home, _out = _run_e2e(tmp_path, live=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.count("Restart PipeWire:") == 1
     assert "Next steps:" not in result.stdout
@@ -825,15 +897,14 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     """Every other line asks the user to restart their sound server with a
     config they can't read; none said how to get back if it sounds worse or
     PipeWire won't come up."""
-    result, _home, out = _run_e2e(tmp_path)
+    result, _home, _out = _run_e2e(tmp_path, live=True)
     assert result.returncode == 0, result.stderr
     report = result.stdout
     # Alone in its folder, this run's chain is all --uninstall would remove,
-    # so the one command leads — told the folder it was written to, or it
-    # would look in the default one and find nothing.
+    # so the one command leads. The default folder needs no flag to find it.
     undo_line = next(ln for ln in report.splitlines() if "To undo:" in ln)
-    assert "--uninstall --pipewire-confd-dir" in undo_line, undo_line
-    assert str(out) in undo_line
+    assert undo_line.rstrip().endswith("dolby_to_pipewire.py --uninstall"), \
+        undo_line
     assert "rm '" not in report
     assert report.index("To undo:") > report.index("Restart PipeWire:")
 
@@ -844,11 +915,26 @@ def test_e2e_undo_leaves_out_a_wireplumber_dir_no_hook_went_to(tmp_path):
     wp = (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
     result, _home, _out = _run_e2e(tmp_path, "--wireplumber-scripts-dir",
                                    str(wp[0]), "--wireplumber-confd-dir",
-                                   str(wp[1]))
+                                   str(wp[1]), live=True)
     assert result.returncode == 0, result.stderr
     undo_line = next(ln for ln in result.stdout.splitlines()
                      if "To undo:" in ln)
     assert "--wireplumber-" not in undo_line, undo_line
+
+
+def test_e2e_a_build_for_elsewhere_lists_its_files_and_activates_nothing(
+        tmp_path):
+    """A folder PipeWire doesn't read here, such as a package being built:
+    restart and verify steps would test the wrong machine, and an undo has
+    nothing loaded to undo. What the reader needs is the set of files."""
+    result, _home, out = _run_e2e(tmp_path)
+    assert result.returncode == 0, result.stderr
+    report = result.stdout
+    assert "[3/3] Built for another location" in report
+    for name in ("Dolby_Balanced.conf", "Dolby_Balanced.irs"):
+        assert f"    {out / name}" in report.splitlines()
+    assert "Restart PipeWire" not in report
+    assert "To undo" not in report
 
 
 def test_e2e_report_cta_is_printed_once_and_last(tmp_path):

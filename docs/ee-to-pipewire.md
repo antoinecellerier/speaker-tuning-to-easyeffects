@@ -227,12 +227,13 @@ output stays on, since streams then play into it directly. The fragment loads
 the script as a wanted component, not a required one, so a script that fails to
 load is logged and WirePlumber starts without it.
 
-`--speaker-port-hook auto`, the default, installs the hook when the target sink
-shows a speaker port and another output port beside it. The hook applies the
-same rule, so a sink with no port typed `speaker` is left alone. Where the
-speakers have a sink of their own, as on a card with a UCM profile, nothing is
-installed. `on` installs it without reading the graph, for a conf built where
-there is no audio session, and `off` never installs it.
+`--speaker-port-hook auto`, the default, reads the running session and installs
+the hook when the target sink shows a speaker port and another output port
+beside it. The hook applies the same rule, so a sink with no port typed
+`speaker` is left alone. Where the speakers have a sink of their own, as on a
+card with a UCM profile, nothing is installed. `on` installs it without reading
+the graph, for a conf built where there is no audio session, and `off` never
+installs it.
 
 A conf written with `--pipewire-confd-dir` outside PipeWire's own folders gets
 its hook only with `--wireplumber-scripts-dir` and `--wireplumber-confd-dir`,

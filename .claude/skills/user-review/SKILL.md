@@ -104,9 +104,14 @@ user sees, wrapping included. To capture something the helper doesn't cover:
 - wrap the command in `script -qec "…" /dev/null`, because piping reorders
   stdout against stderr and a terminal does not;
 - run `dolby_to_pipewire.py` only with `--dry-run` or `--no-activate`;
-- point `--output-dir` at scratch only with `--no-activate`. Under
-  `--dry-run` keep the defaults, so the printed paths are the ones a user
-  sees.
+- point `--pipewire-confd-dir`, `--wireplumber-scripts-dir` and
+  `--wireplumber-confd-dir` at scratch only to review what a build for
+  another location prints at the end. Without the two WirePlumber folders, a
+  machine whose speakers share a sink with the headphone jack refuses the
+  run. Any folder outside PipeWire's own gets that ending, not the
+  activation steps a user sees; the helper's sandboxed `cap_pw_full.txt`
+  covers those. Under `--dry-run` keep the defaults, so the printed paths
+  are the ones a user sees.
 
 Do not read the captures into your own context. The helper's summary is the
 validity check: exit code, line count and last line per file. If in doubt,

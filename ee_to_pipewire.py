@@ -76,8 +76,9 @@ def add_routing_args(container, *, only=None):
              "the target sink's active port is not a speaker port. It is for "
              "a sound card whose headphone jack shares one sink with the "
              "speakers, where the filter would otherwise keep processing on "
-             "headphones. auto (default) installs it when the target sink "
-             "has a speaker port and another output port. on installs it "
+             "headphones. auto (default) reads the target sink's ports on "
+             "the machine running this, and installs it when that sink has "
+             "a speaker port and another output port. on installs it "
              "without looking, for a conf "
              "built away from the machine it will run on. off never installs "
              "it. Needs the smart-filter routing --target-sink gives.",
@@ -119,6 +120,32 @@ def confd_dir(flag: Path | None) -> Path:
     return flag.expanduser().resolve()
 
 
+def print_keep_files(hook: bool) -> None:
+    """After a dry run into PipeWire's own folder: how to write the files to
+    folders of the reader's own instead of installing them.
+
+    The flags to add, not the reader's command echoed back: its paths would
+    put their home folder on a line meant to be pasted into an issue, and
+    rendering them with ``~`` breaks the quoting a paste needs. ``hook`` is
+    whether this conf wanted the speaker-port hook. Only then are the
+    WirePlumber folders named: the real run would refuse without them, and
+    elsewhere they would only print "unused"."""
+    flags = "--pipewire-confd-dir CONF_DIR"
+    if hook:
+        flags += (" --wireplumber-scripts-dir WP_SCRIPTS_DIR"
+                  " --wireplumber-confd-dir WP_CONFD_DIR")
+    console._cprint_wrapped(
+        "dim", "  To get these files without installing them, run the same "
+        "command without --dry-run, adding:", indent="  ")
+    console.cprint("cta", f"    {flags}")
+    if hook:
+        # Neutral on why: `auto` read a shared port, `on` asked without
+        # looking, and either way the conf comes with the hook.
+        console._cprint_wrapped(
+            "dim", "  (the WP_ folders take the WirePlumber files of the "
+            "speaker-port hook this conf comes with)", indent="   ")
+
+
 def wireplumber_dirs(args) -> tuple[Path, Path] | None:
     """Return the (scripts, conf.d) folders the two WirePlumber flags name,
     resolved, or None for the per-user folders WirePlumber reads
@@ -153,7 +180,9 @@ def add_output_args(container, *, only=None):
              "after the sink's node name, such as Dolby_Balanced.conf "
              f"(default: {doctor.tilde(checks.DEFAULT_PW_CONFD_DIR)}, which "
              "PipeWire reads). Point it elsewhere to build the files for "
-             "another location, such as a package.",
+             "another location, such as a package: PipeWire is then not "
+             "restarted and no sink is looked for here, and the run lists "
+             "the files.",
     )
     add(
         "--wireplumber-scripts-dir",
@@ -175,7 +204,8 @@ def add_output_args(container, *, only=None):
              "share/wireplumber/wireplumber.conf.d (default: "
              f"{doctor.tilde(port_hook.paths()[1].parent)}). Both WirePlumber "
              "folders are needed for the hook when --pipewire-confd-dir is "
-             "not one of PipeWire's own folders.",
+             "not one of PipeWire's own folders: its default above, or the "
+             "filter-chain.conf.d beside it.",
     )
     add(
         "--node-name",
@@ -256,8 +286,10 @@ def add_general_args(container, *, only=None):
         help="report where the conf and impulse response would be written, "
              "without writing them. A missing impulse file is reported "
              "instead of stopping the run. To get the conf itself without "
-             "installing it, run without this flag and point "
-             "--pipewire-confd-dir at a folder of your own.",
+             "installing it, run without this flag, using "
+             "--pipewire-confd-dir with a folder of your own, and "
+             "--wireplumber-scripts-dir and --wireplumber-confd-dir with two "
+             "more.",
     )
     add(
         "--skip-next-steps",
@@ -470,14 +502,17 @@ def _print_missing_lv2_loader(loader) -> None:
         console.cprint(style, f"  {text}")
 
 
-def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
+def main(argv: list[str] | None = None, wrapped: bool = False,
+         outcome: dict | None = None) -> int:
     """Run the converter and return its exit code.
 
     ``wrapped`` marks an in-process dolby_to_pipewire.py run. The wrapper
     owns all activation messaging ([3/3] activates, lists the steps, or says
     dry run), so the --skip-next-steps "To activate:" fallback is dropped.
     Kept, it would print the identical restart command two lines above
-    [3/3]'s step 1 (user-review round 5)."""
+    [3/3]'s step 1 (user-review round 5). ``outcome``, when given, gets
+    ``hook``: whether this conf wanted the speaker-port hook, which the
+    wrapper's dry-run closing words its command by."""
     parser = build_parser(argv)
     if argcomplete is not None:
         _attach_completers(parser)
@@ -536,6 +571,15 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     safe_node_name = pw_conf._sanitize_name(node_name)
     conf_dir = confd_dir(args.pipewire_confd_dir)
     output_path = conf_dir / f"{safe_node_name}.conf"
+    # A conf built for another location can't keep pointing at this
+    # machine's EasyEffects impulse file: the target has no such file, and a
+    # convolver whose file is missing stops the whole conf loading.
+    if args.no_copy_irs and not checks.is_live_conf_dir(conf_dir):
+        console._cprint_wrapped(
+            "err", "error: --no-copy-irs keeps the conf pointing at this "
+            "machine's EasyEffects impulse file, which a build for another "
+            "location can't carry; drop --no-copy-irs.", indent="   ")
+        return 2
 
     try:
         chain = pw_conf.build_chain(preset, args.irs_dir.expanduser(),
@@ -693,13 +737,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     if target_sink and describe_as_filter:
         node_description += pw_conf.SMART_DESCRIPTION_SUFFIX
 
-    want_hook, no_hook_why = _wants_port_hook(args, target_sink)
     # None is the per-user pair WirePlumber reads, which only a conf PipeWire
     # loads may default to. A conf built for somewhere else gets its hook
     # somewhere else too, and only the reader knows where.
     hook_dirs = wireplumber_dirs(args)
-    if (want_hook and hook_dirs is None
-            and not checks.is_live_conf_dir(conf_dir)):
+    live = checks.is_live_conf_dir(conf_dir)
+    want_hook, no_hook_why = _wants_port_hook(
+        args, target_sink, placeable=hook_dirs is not None or live)
+    if outcome is not None:
+        outcome["hook"] = want_hook
+    if want_hook and hook_dirs is None and not live:
         # Before anything is written, and under --dry-run too: a real run
         # stops here.
         console._cprint_wrapped(
@@ -712,11 +759,29 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             "--wireplumber-confd-dir, or pass --speaker-port-hook off.",
             indent="   ")
         return 1
-    if (hook_dirs is not None and not want_hook
-            and args.speaker_port_hook != "off"):
+    # No reason means the run already said why (or `off` asked for none).
+    if hook_dirs is not None and not want_hook and no_hook_why:
         console._cprint_wrapped(
             "dim", f"[speaker-port] no hook for this conf ({no_hook_why}), so "
             "the WirePlumber folders given are unused", indent="   ")
+    if not live and no_hook_why == _NO_SHARED_PORT:
+        # Built for elsewhere, `auto` asked the wrong machine.
+        console._cprint_wrapped(
+            "warn", "[speaker-port] this conf is built for another machine, "
+            "and auto read this one's sink. If the machine it runs on shares "
+            "its headphone jack with the speakers, pass --speaker-port-hook "
+            f"on{'' if hook_dirs is not None else _WITH_FOLDERS}.",
+            indent="   ")
+    if want_hook and hook_dirs is not None and live:
+        # The conf goes live, so a hook WirePlumber never loads would leave
+        # the bypass silently missing. This tool can't tell which folders a
+        # given WirePlumber reads; its own per-user ones it does
+        # (`port_hook.paths`).
+        console._cprint_wrapped(
+            "warn", "[speaker-port] the hook's files go to the WirePlumber "
+            "folders given, and WirePlumber loads them only if it reads "
+            "those folders. Without the two flags they go to your own "
+            "WirePlumber folders, which it reads.", indent="   ")
 
     links = pw_conf.emit_links(chain.stages) + vbe_links
     conf = pw_conf.format_conf(chain.stages, links, node_name,
@@ -847,6 +912,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         if want_hook:
             install._print_port_hook(port_hook.paths(hook_dirs),
                                      dry_run=True)
+        if live and not wrapped:
+            print_keep_files(want_hook)
         return 0
 
     if output_path.exists() and not args.force:
@@ -879,8 +946,13 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     install._print_results(output_path, copied_irs, dry_run=False)
     if want_hook:
         install._print_port_hook(port_hook.write(hook_dirs), dry_run=False)
-    checks.warn_if_stacked(output_path, target_sink)
-    if target_sink is None and (not wrapped or args.target_sink != ""):
+    # Both speak of this machine's speakers and sound settings, which a
+    # folder nothing here loads never reaches; --doctor reads the folder
+    # once it is installed.
+    if live:
+        checks.warn_if_stacked(output_path, target_sink)
+    if (live and target_sink is None
+            and (not wrapped or args.target_sink != "")):
         # The wrapper counts its whole run once, after its last conf lands, but
         # only for a run it knows is v1 (--target-sink ''). One that fell back
         # here because no speaker sink was detected is this conf's to count.
@@ -889,6 +961,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     checks.warn_if_easyeffects_running(
         conf_dir=output_path.parent,
         hook_dirs=hook_dirs if want_hook else None)
+    if not live:
+        # Restart and verify steps would test this machine for files it
+        # never loads. Under a wrapper, its [3/3] says so for the whole run.
+        if not wrapped:
+            install._print_built_elsewhere(
+                [output_path]
+                + ([target_irs] if src_irs is not None
+                   and target_irs.exists() else [])
+                + (list(port_hook.paths(hook_dirs)) if want_hook else []))
+        return 0
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go
         # unmentioned as inactive — keep the one action that makes it live.
@@ -901,9 +983,25 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     return 0
 
 
-def _wants_port_hook(args, target_sink: str | None) -> tuple[bool, str]:
+# Appended to advice to add `--speaker-port-hook on` where the hook's files
+# have no default place: `on` alone would be refused.
+_WITH_FOLDERS = (" with --wireplumber-scripts-dir and --wireplumber-confd-dir "
+                 "for its files")
+
+# Why `auto` skipped the hook after reading the sink: the one reason a conf
+# built for elsewhere may have got wrong, since it read this machine.
+_NO_SHARED_PORT = ("the target sink, as this machine shows it, doesn't have "
+                   "both a speaker port and another output port")
+
+
+def _wants_port_hook(args, target_sink: str | None,
+                     placeable: bool = True) -> tuple[bool, str]:
     """Whether this conf gets the speaker-port hook (``lib.pipewire.port_hook``),
     and why not when it doesn't, for WirePlumber folders left unused.
+
+    ``placeable`` is whether the hook's files have somewhere to go. Without
+    it the caller refuses the run, so the line announcing the hook is held
+    back: the hook won't be added.
 
     ``auto`` answers from the target sink's ports in the running graph. A
     sink it can't see gets no hook, and a line saying how to ask for one
@@ -915,14 +1013,17 @@ def _wants_port_hook(args, target_sink: str | None) -> tuple[bool, str]:
         if mode == "on":
             console.cprint("warn", "[speaker-port] --speaker-port-hook on "
                            f"ignored: {no_routing}")
+            # Said just now: the "unused" line would say it again.
+            return False, ""
         return False, no_routing
     if mode == "off":
         return False, ""
     if mode == "on":
-        console._cprint_wrapped(
-            "ok", "[speaker-port] adding the WirePlumber script that "
-            "switches the filter off while the speakers aren't the active "
-            "output (from --speaker-port-hook on)", indent="   ")
+        if placeable:
+            console._cprint_wrapped(
+                "ok", "[speaker-port] adding the WirePlumber script that "
+                "switches the filter off while the speakers aren't the active "
+                "output (from --speaker-port-hook on)", indent="   ")
         return True, ""
     sink = next((s for s in sinks._enumerate_audio_sinks()
                  if s["name"] == target_sink), None)
@@ -932,13 +1033,15 @@ def _wants_port_hook(args, target_sink: str | None) -> tuple[bool, str]:
                 "dim", f"[speaker-port] {target_sink} isn't in the running "
                 "graph, so its ports weren't read; if its headphone jack "
                 "shares that sink with the speakers, add "
-                "--speaker-port-hook on", indent="   ")
+                f"--speaker-port-hook on{'' if placeable else _WITH_FOLDERS}",
+                indent="   ")
         return False, "the target sink's ports weren't read"
     others = sinks.non_speaker_ports(sink)
     if not others:
         # The rule `non_speaker_ports` applies, in --speaker-port-hook's words.
-        return False, ("the target sink doesn't have both a speaker port and "
-                       "another output port")
+        return False, _NO_SHARED_PORT
+    if not placeable:
+        return True, ""
     names = ", ".join(p["description"] or p["name"] for p in others)
     that = "that output is" if len(others) == 1 else "one of those is"
     console._cprint_wrapped(

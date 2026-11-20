@@ -1757,6 +1757,14 @@ def test_active_autogain_is_translated():
 # preserves v1's behaviour of referencing the EE-side path.
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def live_out(monkeypatch, tmp_path):
+    """Make `_run_main`'s output folder PipeWire's own, for a test of what a
+    live install prints. Any other folder is a build for elsewhere."""
+    from lib.pipewire import checks
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "out")
+
+
 def _run_main(generated, tmp_path, *extra_args, no_validate=True):
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1831,7 +1839,7 @@ def test_output_is_not_a_flag(generated, tmp_path, capsys):
     assert "unrecognized arguments: --output" in capsys.readouterr().err
 
 
-def test_main_no_copy_irs_keeps_source_path(generated, tmp_path):
+def test_main_no_copy_irs_keeps_source_path(generated, tmp_path, live_out):
     """With `--no-copy-irs`, no copy happens and the conf references the
     original EE-side path (the v1 behaviour).
     """
@@ -1931,7 +1939,7 @@ def test_main_dry_run_says_a_missing_impulse_file_stops_a_real_run(
 
 
 def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
-                                                        capsys):
+                                                        capsys, live_out):
     """A real write reports the destinations (Wrote/Copied) and a numbered
     Next steps block — the post-[next] presentation."""
     rc, out_path, _src_irs = _run_main(generated, tmp_path)
@@ -1944,8 +1952,23 @@ def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
     assert "[next]" not in out  # old per-line tag is gone
 
 
+def test_a_build_for_elsewhere_lists_its_files_instead_of_next_steps(
+        generated, tmp_path, capsys):
+    """Restart and verify steps would test this machine for files it never
+    loads; the closing names the complete set to install instead."""
+    rc, out_path, _ = _run_main(generated, tmp_path)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Built for another location" in out
+    lines = out.splitlines()
+    assert f"    {out_path}" in lines
+    assert f"    {out_path.with_suffix('.irs')}" in lines
+    assert "Next steps:" not in out
+    assert "To activate" not in out
+
+
 def test_main_skip_next_steps_suppresses_checklist(generated, tmp_path,
-                                                   capsys):
+                                                   capsys, live_out):
     """`--skip-next-steps` replaces the next-steps checklist with the
     one-line activation pointer — dolby_to_pipewire.py relies on it to
     print its own consolidated activation block instead. The Wrote/Copied
@@ -2169,7 +2192,7 @@ def test_explicit_node_description_is_emitted_verbatim(generated, tmp_path):
 # an output that processes nothing until it is selected and never said so —
 # the exact gap the wrapper's traps cover, on the path that had none.
 
-def test_next_steps_tell_a_v1_user_to_select_the_sink(generated, tmp_path, capsys):
+def test_next_steps_tell_a_v1_user_to_select_the_sink(generated, tmp_path, capsys, live_out):
     _run_main(generated, tmp_path, "--target-sink", "")
     out = capsys.readouterr().out
     assert "pactl set-default-sink effect_input.TestChain" in out
@@ -2178,7 +2201,7 @@ def test_next_steps_tell_a_v1_user_to_select_the_sink(generated, tmp_path, capsy
 
 
 def test_next_steps_tell_a_smart_filter_user_to_leave_it_alone(
-        generated, tmp_path, capsys):
+        generated, tmp_path, capsys, live_out):
     _run_main(generated, tmp_path, "--target-sink", "alsa_output.stub__Speaker__sink")
     out = capsys.readouterr().out
     assert "nothing to select afterwards" in out
@@ -2202,7 +2225,7 @@ def test_the_way_out_of_v1_is_offered_only_to_an_unpinned_chain(
 
 
 def test_detection_failure_still_says_the_chain_is_inert(
-        generated, tmp_path, capsys, monkeypatch):
+        generated, tmp_path, capsys, monkeypatch, live_out):
     """The fallback nobody asked for: detection failed, so a v1 conf is written
     anyway. It used to print neither the select-it step nor the consequence."""
     monkeypatch.setattr(install, "_autodetect_speaker_sink",
@@ -2214,7 +2237,7 @@ def test_detection_failure_still_says_the_chain_is_inert(
 
 
 def test_a_wrapped_run_that_fell_back_to_v1_counts_its_own_chain(
-        generated, tmp_path, capsys, monkeypatch):
+        generated, tmp_path, capsys, monkeypatch, live_out):
     """The wrapper counts the chains its run leaves only for --target-sink '';
     a default run whose speaker detection failed went v1 in the child, so the
     child is the one that knows, and the warning must not go missing."""
@@ -3599,6 +3622,52 @@ def test_auto_installs_no_hook_for_a_speaker_only_sink(
             "the WirePlumber folders given are unused") in out
 
 
+@pytest.mark.parametrize("live", [False, True])
+def test_auto_skipping_the_hook_for_elsewhere_names_on(
+        generated, tmp_path, monkeypatch, capsys, live):
+    """A conf built for another machine had `auto` read this one's sink, so
+    a skipped hook may be the wrong answer there; a live conf's is right."""
+    from lib.hardware import sinks as hw
+    from lib.pipewire import checks
+    if live:
+        monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "out")
+    sink = _shared_sink(headphones=False)
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink", sink["name"])
+    assert rc == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("built for another machine, and auto read this one's sink"
+            in out) is not live
+
+
+def test_no_copy_irs_is_refused_for_a_build_for_elsewhere(
+        generated, tmp_path, capsys):
+    """The conf would point at this machine's EasyEffects impulse file,
+    which the target doesn't have, so the conf wouldn't load there."""
+    rc, out_path, _ = _run_main(generated, tmp_path, "--no-copy-irs")
+    assert rc == 2
+    assert not out_path.exists()
+    assert "drop --no-copy-irs" in " ".join(capsys.readouterr().out.split())
+
+
+def test_advice_to_add_on_names_the_folders_it_would_need(generated, tmp_path,
+                                                          capsys):
+    """For a folder of your own, `on` alone would be refused."""
+    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink", "elsewhere")
+    assert rc == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("add --speaker-port-hook on with --wireplumber-scripts-dir and "
+            "--wireplumber-confd-dir") in out
+
+
+def test_on_ignored_for_a_v1_conf_says_why_once(generated, tmp_path, capsys):
+    rc, _out, _ = _run_hooked(generated, tmp_path, "--target-sink", "",
+                              "--speaker-port-hook", "on")
+    assert rc == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert out.count("it needs smart-filter routing") == 1
+
+
 def test_auto_names_the_flag_when_the_sink_is_not_in_the_graph(
         generated, tmp_path, capsys):
     """A conf built away from its machine (a Nix derivation): nothing to
@@ -3681,6 +3750,8 @@ def test_a_hook_for_a_conf_of_your_own_needs_a_wireplumber_dirs(
     out = " ".join(capsys.readouterr().out.split())
     assert "--wireplumber-scripts-dir and --wireplumber-confd-dir" in out
     assert "--speaker-port-hook off" in out
+    # Held back: announced before the refusal, it read as already done.
+    assert "adding the WirePlumber script" not in out
 
 
 def test_auto_hook_for_a_conf_of_your_own_needs_a_wireplumber_dirs(
@@ -3692,6 +3763,8 @@ def test_auto_hook_for_a_conf_of_your_own_needs_a_wireplumber_dirs(
                                 "--target-sink", sink["name"])
     assert rc == 1
     assert not out_path.exists()
+    assert "Adding a small WirePlumber script" not in " ".join(
+        capsys.readouterr().out.split())
 
 
 def test_a_live_conf_gets_the_per_user_hook(generated, tmp_path, monkeypatch):
@@ -3706,6 +3779,44 @@ def test_a_live_conf_gets_the_per_user_hook(generated, tmp_path, monkeypatch):
     assert rc == 0
     assert all(port_hook.is_ours(p) for p in port_hook.paths())
     assert port_hook.paths()[0].is_relative_to(tmp_path / "data")
+
+
+def test_a_live_conf_warns_a_wireplumber_dir_may_go_unread(
+        generated, tmp_path, capsys, live_out):
+    """The conf goes live; a hook in a folder WirePlumber doesn't read would
+    leave the headphone bypass silently missing."""
+    rc, _out, _ = _run_hooked(generated, tmp_path, "--target-sink",
+                              "elsewhere", "--speaker-port-hook", "on")
+    assert rc == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "WirePlumber loads them only if it reads those folders" in out
+
+
+def test_a_build_for_elsewhere_skips_this_machines_chain_warnings(
+        generated, tmp_path, monkeypatch, capsys):
+    """Stacked and crowded speak of this machine's speakers and sound
+    settings, which a folder nothing here loads never reaches."""
+    from lib.pipewire import checks
+    monkeypatch.setattr(checks, "virtual_sink_confs",
+                        lambda d, exclude=(): [d / "Other.conf"])
+    monkeypatch.setattr(checks, "warn_if_stacked",
+                        lambda *a: pytest.fail("stacked warning for a package"))
+    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink", "")
+    assert rc == 0
+    assert "separate outputs" not in capsys.readouterr().out
+
+
+def test_a_dry_run_prints_the_keep_the_files_command(
+        generated, tmp_path, capsys, live_out):
+    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink",
+                            "elsewhere", "--speaker-port-hook", "on",
+                            "--dry-run")
+    assert rc == 0
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines()
+                if "--pipewire-confd-dir CONF_DIR" in ln)
+    assert ("--wireplumber-scripts-dir WP_SCRIPTS_DIR "
+            "--wireplumber-confd-dir WP_CONFD_DIR") in line
 
 
 def test_live_hook_paths_follow_the_xdg_homes(monkeypatch, tmp_path):

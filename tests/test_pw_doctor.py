@@ -1878,12 +1878,23 @@ def test_easyeffects_running_warns_it_processes_twice(silence_console, capsys):
 
 
 def test_easyeffects_switch_back_names_a_non_default_conf_dir(
-        silence_console, capsys, tmp_path):
+        silence_console, capsys, tmp_path, monkeypatch):
     """--uninstall looks only where it is told: a conf written elsewhere
     needs its folder on the line, or the command finds nothing."""
     silence_console(console)
+    # The folder filter-chain.service reads: live, but not the default.
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path)
     checks.warn_if_easyeffects_running(running=True, conf_dir=tmp_path)
     assert f"--uninstall --pipewire-confd-dir {tmp_path}" in capsys.readouterr().out
+
+
+def test_easyeffects_warning_skips_a_folder_nothing_loads_here(
+        silence_console, capsys, tmp_path):
+    """Files built for another location, such as a package, process nothing
+    alongside EasyEffects on this machine."""
+    silence_console(console)
+    checks.warn_if_easyeffects_running(running=True, conf_dir=tmp_path / "pkg")
+    assert capsys.readouterr().out == ""
 
 
 def test_no_easyeffects_process_stays_silent(silence_console, capsys,
