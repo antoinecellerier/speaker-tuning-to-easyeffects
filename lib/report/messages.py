@@ -205,6 +205,14 @@ VOICING_CURVES = {
 }
 
 
+# Speaker findings that hold whatever preset plays: a gate holding the
+# woofers off, a pin the kernel leaves unconfigured, one routed past its
+# volume control. The closing block names them (``speaker_faults``).
+# Not speaker-count: that one is a question for the owner, not a fault.
+SPEAKER_FAULT_SLUGS = ("firmware-gate", "speaker-pin", "speaker-routing",
+                       "speaker-fixed-level")
+
+
 def print_what_now(preset_names: list[str], autoloaded: bool,
                    dry_run: bool, output_dir=None,
                    profile_used: str | None = None,
@@ -225,7 +233,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    reloaded: str = "",
                    loaded: str = "",
                    reload_slug: str = "",
-                   start_with: str = "") -> None:
+                   start_with: str = "",
+                   speaker_faults: tuple[str, ...] = ()) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -265,6 +274,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     a single-profile run makes with ``profile_used`` can name it instead of
     a rebuild. ``experimental`` names the presets built from a tuning no
     listener has heard, which the list marks.
+
+    ``speaker_faults`` are the ``SPEAKER_FAULT_SLUGS`` this run raised. Each
+    prints its warning and steps mid-run, which a reader who stops at Done
+    never sees, and then judges presets playing on speakers Linux is driving
+    wrong.
     """
     if not preset_names or autoloaded:
         return
@@ -462,6 +476,13 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "Or re-run with "
                                "--autoload to have it load itself for your "
                                "speakers.", indent="  ")
+    if speaker_faults:
+        tags = " and ".join(f"[{slug}]" for slug in speaker_faults)
+        console._cprint_wrapped(
+            "warn", f"  Before judging the sound, see {tags} above: Linux is "
+            "driving your speakers in a way no preset can make up for, and "
+            f"{'each' if len(speaker_faults) > 1 else 'it'} says what can be "
+            "done.", indent="  ")
     if modes_note:
         console._cprint_wrapped("dim", modes_note, indent="  ")
     if mismatch_note:

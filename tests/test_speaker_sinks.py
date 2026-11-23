@@ -2112,8 +2112,16 @@ def test_upgrade_prospect_user_is_already_past_it():
     the pin is still missing, so telling them to upgrade is telling them to go
     and get what they have."""
     text = report_speaker.upgrade_prospect(_quirk("6.15"), release="7.1.5+deb14-amd64")
-    assert "should already be" in text
+    assert "new enough to carry this fix" in text
     assert "7.1" in text and "6.15" in text
+    # Follows "your kernel isn't applying it": "should already be applying"
+    # read as the tool contradicting itself.
+    assert "should already be" not in text
+    assert "can't tell which" in text and "undo step below" in text
+    # No forcible name: no undo step to point at.
+    nameless = report_speaker.upgrade_prospect(
+        _quirk("6.15", model=""), release="7.1.5+deb14-amd64")
+    assert "undo step" not in nameless and "only route" in nameless
 
 
 def test_upgrade_prospect_unparseable_kernel_falls_back_to_upgrade_advice():
@@ -2381,6 +2389,21 @@ def test_repeated_model_name_is_explained_where_it_is_printed(fake_host):
     assert "repeated once per audio controller" in prose()
 
 
+def test_model_name_is_explained_before_the_command_not_after(fake_host):
+    """A reader meeting a model name not theirs, or a doubled one, in a line
+    they are about to sudo stops there; an explanation under it came too
+    late for both reviewers who read it."""
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    fake_host(f"{_HDA_DRIVER}/0000:00:1f.3", "")
+    fake_host(f"{_HDA_DRIVER}/0000:01:00.1", "")
+    lines = [t for _, t in report_speaker.speaker_pin_fix_steps(
+        quirk, ["0x17"], False, 80)]
+    command = next(i for i, t in enumerate(lines) if "echo 'options" in t)
+    before = " ".join(" ".join(lines[:command]).split())
+    assert "kernel's label for the fix" in before
+    assert "repeated once per audio controller" in before
+
+
 def test_pin_fix_wraps_prose_but_never_a_command():
     """A command folded by textwrap doesn't run; the terminal soft-wrapping a
     long one is fine. So width may only reflow the prose."""
@@ -2450,8 +2473,9 @@ def test_fix_says_the_quirk_name_is_not_a_model_name():
     in a line the reader is about to run with sudo — upstream's own entry for
     this codec id is named "Lenovo Yoga 7 16IAP7"."""
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
-    prose = " ".join(t for s, t in report_speaker.speaker_pin_fix_steps(
-        quirk, ["0x17"], True, 90) if s != "cta")
+    prose = " ".join(" ".join(
+        t for s, t in report_speaker.speaker_pin_fix_steps(
+            quirk, ["0x17"], True, 90) if s != "cta").split())
     assert "not your model" in prose and "hardware id" in prose
 
 

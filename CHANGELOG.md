@@ -145,6 +145,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   such as AMD laptops, whose HDMI audio has its own. It used to set only the
   first controller, which can be the HDMI one, so rebooting changed nothing
   ([#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51)).
+- A speaker warning raised mid-run, such as a hidden or mis-routed speaker or
+  the smart-amp gate off, is now named in the run's closing lines. Its steps
+  scrolled off before the end, so the presets got judged on speakers Linux was
+  driving wrong.
 - The PipeWire `--doctor` fails "Installed confs" when no chain is installed,
   instead of ending on "Nothing failed outright".
 - The PipeWire scripts' plugin check and `--doctor` search where the running

@@ -2626,6 +2626,31 @@ def test_closing_names_what_is_playing_after_a_reload(silence_console, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_closing_names_a_speaker_fault_raised_mid_run(silence_console, capsys):
+    """TRAP: a speaker the kernel drives wrong sounds bad under every preset,
+    and its warning and steps print mid-run, off a 26-line screen. A reader
+    stopping at Done judged the presets on it and never learned of the fix."""
+    silence_console(console)
+    names = ["Dolby-Balanced"]
+    messages.print_what_now(names, False, False)
+    assert "Before judging the sound" not in capsys.readouterr().out
+    messages.print_what_now(names, False, False,
+                            speaker_faults=("speaker-routing",))
+    out = " ".join(capsys.readouterr().out.split())
+    assert "see [speaker-routing] above" in out and "it says what" in out
+    messages.print_what_now(names, False, False,
+                            speaker_faults=("firmware-gate", "speaker-pin"))
+    out = " ".join(capsys.readouterr().out.split())
+    assert "[firmware-gate] and [speaker-pin] above" in out
+    assert "each says what" in out
+
+
+def test_speaker_fault_slugs_name_real_findings():
+    """A renamed slug would drop out of the closing block with no error."""
+    slugs = {f.slug for f in _every_finding()}
+    assert set(messages.SPEAKER_FAULT_SLUGS) <= slugs
+
+
 def test_apply_hint_skips_easyeffects_for_a_wrapper(silence_console, capsys):
     """The line telling you how to apply a fix must not end in an action the
     reader can't perform. dolby_to_pipewire.py users chose that path to avoid

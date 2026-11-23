@@ -1315,7 +1315,10 @@ def main(argv: list[str] | None = None,
                        reload_slug=(reloaded.finding.slug
                                     if reloaded.finding and not reloaded.loaded
                                     else ""),
-                       start_with=start)
+                       start_with=start,
+                       speaker_faults=tuple(
+                           slug for slug in tally.findings
+                           if slug in messages.SPEAKER_FAULT_SLUGS))
 
     # The way back, as the PipeWire route prints its own
     # (lib/pipewire/install.py _print_undo). A footnote, so above the

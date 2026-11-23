@@ -175,11 +175,21 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk
     running = environment.parse_kernel_series(release)
     fixed_in = environment.parse_kernel_series(quirk.since)
     if running and fixed_in and running >= fixed_in:
-        return (f"Linux {quirk.since} carries this fix and you are on "
-                f"{running[0]}.{running[1]}, so it should already be applying "
-                "— something on this machine is stopping it (a vendor kernel "
-                "that dropped the fix, or a different model id than upstream "
-                "expects)." + tail)
+        # Phrased as the observation it follows from, not as "should already
+        # be applying": right after the warning's "your kernel isn't applying
+        # it", that read as the tool contradicting itself, and the forcing
+        # step after it as a guess. The two causes
+        # are the ones the version check cannot tell apart.
+        why = (f"Your kernel ({running[0]}.{running[1]}) is new enough to "
+               f"carry this fix, which landed in Linux {quirk.since}, yet it "
+               "isn't taking effect here. Likely a distro kernel that left "
+               "it out, or the kernel identifying your machine by a "
+               "different id than the one the fix is listed under; this run "
+               "can't tell which.")
+        if not quirk.model:
+            return why + tail
+        return (why + " Forcing it is worth a try, and the undo step below "
+                "takes it back out." + tail)
     return (f"Linux {quirk.since} and newer apply this automatically, so a "
             "kernel upgrade is the durable fix." + tail)
 
@@ -288,7 +298,29 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
             subsequent_indent=hang or indent, break_on_hyphens=False)]
 
     return tuple([
-        *prose("1. Write the option, then reboot:"),
+        # Both explanations lead the command they explain: below it, in dim
+        # text, they came too late for a reader who had already stopped at a
+        # model name not theirs, or a doubled name, in a line they are about
+        # to sudo.
+        # The fixup's name is the kernel's, and several of them carry a model
+        # that isn't the one running: a row can be keyed to a codec id whose
+        # upstream entry reads "Yoga 7 16IAP7" while the name says yoga9.
+        # And the matching happened here, not at boot: hda_model= forces the
+        # fixup by name with no hardware check of its own, so "it is matched
+        # to your machine by hardware id" (an earlier wording) read as a
+        # safety the option has not got.
+        *prose("1. Write the option below, then reboot. Its name is the "
+               "kernel's label for the fix, not your model — the kernel's "
+               "own quirk table pairs it with your hardware id, which is how "
+               "this run found it."
+               # Without this, a doubled name reads as a paste error a
+               # careful reader "fixes" back to the single name that reaches
+               # the HDMI card.
+               + (" The name is repeated once per audio controller in this "
+                  "computer, because the option is set controller by "
+                  "controller; the ones without this codec carry on as "
+                  "before." if copies > 1 else ""),
+               hang="   "),
         ("cta", f"     echo '{option}' \\"),
         # One conf path for both quirk classes on purpose: two files each
         # writing "options <module> <param>=…" would set the same option twice
@@ -296,25 +328,6 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
         # names this path. The two warnings never fire together: a pin the
         # kernel is not configuring cannot also be observed mis-routed.
         ("cta", f"       | sudo tee {_MODPROBE_CONF}"),
-        # The fixup's name is the kernel's, and several of them carry a model
-        # that isn't the one running: a row can be keyed to a codec id whose
-        # upstream entry reads "Yoga 7 16IAP7" while the name says yoga9. A
-        # reader who spots that in a line they are about to sudo stops there.
-        # And the matching happened here, not at boot: hda_model= forces the
-        # fixup by name with no hardware check of its own, so "it is matched
-        # to your machine by hardware id" (an earlier wording) read as a
-        # safety the option has not got.
-        *prose("   That name is the kernel's label for the fix, not your "
-               "model — the kernel's own quirk table pairs it with your "
-               "hardware id, which is how this run found it.",
-               hang="   "),
-        # Without this, a doubled name reads as a paste error a careful
-        # reader "fixes" back to the single name that reaches the HDMI card.
-        *(prose("   It is repeated once per audio controller in this "
-                "computer, because the option is set controller by "
-                "controller; the ones without this codec carry on as "
-                "before.", hang="   ")
-          if copies > 1 else []),
         ("", ""),
         # Two independent confirmations, and the audible one leads because it
         # is the one the user cares about.
