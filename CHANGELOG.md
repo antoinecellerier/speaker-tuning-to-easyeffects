@@ -140,6 +140,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The `hda_model=` command printed for a hidden or mis-routed speaker now
+  reaches the speakers on laptops with more than one HD-audio controller,
+  such as AMD laptops, whose HDMI audio has its own. It used to set only the
+  first controller, which can be the HDMI one, so rebooting changed nothing
+  ([#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51)).
 - The PipeWire `--doctor` fails "Installed confs" when no chain is installed,
   instead of ending on "Nothing failed outright".
 - The PipeWire scripts' plugin check and `--doctor` search where the running

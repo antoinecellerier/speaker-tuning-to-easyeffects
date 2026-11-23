@@ -438,6 +438,23 @@ def test_module_and_firmware_trees_are_still_where_they_are_read():
     assert isinstance(amps._list_firmware_files(["*"]), list)
 
 
+def test_hda_controllers_still_list_under_the_pci_driver():
+    """`hda_model_option` repeats the name once per controller, read as the
+    PCI-address entries of the driver's sysfs directory and the HD-audio-class
+    entries of the PCI device list."""
+    driver = Path("/sys/bus/pci/drivers/snd_hda_intel")
+    bound = (sum(bool(speakers._PCI_ADDRESS_RE.fullmatch(p.name))
+                 for p in driver.iterdir()) if driver.is_dir() else 0)
+    devices = [p for p in Path("/sys/bus/pci/devices").iterdir()
+               if speakers._PCI_ADDRESS_RE.fullmatch(p.name)]
+    assert devices, "no PCI device matched the address pattern"
+    audio = sum((p / "class").read_text().startswith("0x0403")
+                for p in devices)
+    option, copies = speakers.hda_model_option("x", False)
+    assert copies == max(1, bound, audio)
+    assert option == "options snd_hda_intel model=" + ",".join(["x"] * copies)
+
+
 # --- the unpackers a driver download goes through (lib/driver_package.py) ---
 
 def test_innoextract_still_refuses_what_is_not_an_inno_installer(tmp_path):
@@ -588,6 +605,8 @@ _HOST_LOCATIONS = {
     "/proc/sys/kernel/osrelease": "test_the_kernel_release_still_reads_from_proc",
     "/proc/mounts": "test_proc_mounts_still_lists_a_windows_partition_that_is_mounted",
     "/sys/module": "test_module_and_firmware_trees_are_still_where_they_are_read",
+    "/sys/bus/pci/drivers/snd_hda_intel": "test_hda_controllers_still_list_under_the_pci_driver",
+    "/sys/bus/pci/devices": "test_hda_controllers_still_list_under_the_pci_driver",
     "/lib/firmware": "test_module_and_firmware_trees_are_still_where_they_are_read",
     "/lib/firmware/updates": "test_module_and_firmware_trees_are_still_where_they_are_read",
     "/proc//stat": "test_pgrep_still_answers_for_a_running_process (process_age)",

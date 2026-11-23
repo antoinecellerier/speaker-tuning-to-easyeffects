@@ -2319,6 +2319,68 @@ def test_pin_fix_names_the_module_that_owns_the_codec():
                for t in legacy)
 
 
+_HDA_DRIVER = "/sys/bus/pci/drivers/snd_hda_intel"
+_PCI_DEVICES = "/sys/bus/pci/devices"
+
+
+def test_model_option_reaches_every_snd_hda_intel_controller(fake_host):
+    """TRAP (#51): `model=` is indexed by probe slot, so a bare name reached
+    only the first controller — on the 14ASP9 its HDMI card, leaving the
+    ALC287 on card 1 untouched. One copy per bound controller reaches it
+    whatever the slot; the driver's own sysfs entries are not controllers."""
+    for entry in ("0000:c4:00.1", "0000:c4:00.6", "bind", "unbind", "new_id",
+                  "module"):
+        fake_host(f"{_HDA_DRIVER}/{entry}", "")
+    assert speakers.hda_model_option("alc287-yoga9-bass-spk-pin", False) == (
+        "options snd_hda_intel model="
+        "alc287-yoga9-bass-spk-pin,alc287-yoga9-bass-spk-pin", 2)
+
+
+def test_model_option_counts_controllers_switched_off_with_enable(fake_host):
+    """TRAP: `enable=0,1` (a common way to silence HDMI audio) leaves slot 0
+    taken but unbound, so counting bound controllers alone printed one copy
+    and it landed on the switched-off slot. Every HD-audio-class PCI function
+    counts, whether bound or not; other classes and wide PCI domains too."""
+    fake_host(f"{_HDA_DRIVER}/0000:c4:00.6", "")
+    fake_host(f"{_PCI_DEVICES}/0000:c4:00.1/class", "0x040300\n")
+    fake_host(f"{_PCI_DEVICES}/0000:c4:00.6/class", "0x040300\n")
+    fake_host(f"{_PCI_DEVICES}/0000:c4:00.0/class", "0x030000\n")
+    assert speakers.hda_model_option("x", False) == (
+        "options snd_hda_intel model=x,x", 2)
+    fake_host(f"{_PCI_DEVICES}/10000:e0:1f.3/class", "0x040380\n")
+    assert speakers.hda_model_option("x", False)[1] == 3
+
+
+def test_model_option_stays_single_on_one_controller_and_on_sof(
+        fake_host, tmp_path):
+    """#53's Intel machine has one controller: its shipped line must not
+    change. SOF's hda_model is a single string, never an array."""
+    fake_host(f"{_HDA_DRIVER}/0000:00:1f.3", "")
+    assert speakers.hda_model_option("x", False) == (
+        "options snd_hda_intel model=x", 1)
+    params = tmp_path / "snd_sof_intel_hda_generic" / "parameters"
+    params.mkdir(parents=True)
+    (params / "hda_model").write_text("\n")
+    fake_host(f"{_HDA_DRIVER}/0000:01:00.1", "")
+    assert speakers.hda_model_option("x", True, tmp_path) == (
+        "options snd_sof_intel_hda_generic hda_model=x", 1)
+
+
+def test_repeated_model_name_is_explained_where_it_is_printed(fake_host):
+    """A doubled name with no word of why reads as a paste error, and the
+    natural "fix" is the single name that misses the speakers."""
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+
+    def prose():
+        return " ".join(t for s, t in report_speaker.speaker_pin_fix_steps(
+            quirk, ["0x17"], False, 90) if s != "cta")
+
+    fake_host(f"{_HDA_DRIVER}/0000:00:1f.3", "")
+    assert "repeated once per audio controller" not in prose()
+    fake_host(f"{_HDA_DRIVER}/0000:01:00.1", "")
+    assert "repeated once per audio controller" in prose()
+
+
 def test_pin_fix_wraps_prose_but_never_a_command():
     """A command folded by textwrap doesn't run; the terminal soft-wrapping a
     long one is fine. So width may only reflow the prose."""

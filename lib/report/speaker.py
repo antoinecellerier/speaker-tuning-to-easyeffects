@@ -280,7 +280,7 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
     where a folded one would not run at all. So the caller passes the width
     its own surface uses and no line here is broken by hand.
     """
-    module, param = speakers.hda_model_module(uses_sof)
+    option, copies = speakers.hda_model_option(model, uses_sof)
 
     def prose(text: str, indent: str = "", hang: str = "") -> list[tuple[str, str]]:
         return [("dim", line) for line in textwrap.wrap(
@@ -289,7 +289,7 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
 
     return tuple([
         *prose("1. Write the option, then reboot:"),
-        ("cta", f"     echo 'options {module} {param}={model}' \\"),
+        ("cta", f"     echo '{option}' \\"),
         # One conf path for both quirk classes on purpose: two files each
         # writing "options <module> <param>=…" would set the same option twice
         # with undefined precedence, and the undo step shipped for #53 already
@@ -308,6 +308,13 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
                "model — the kernel's own quirk table pairs it with your "
                "hardware id, which is how this run found it.",
                hang="   "),
+        # Without this, a doubled name reads as a paste error a careful
+        # reader "fixes" back to the single name that reaches the HDMI card.
+        *(prose("   It is repeated once per audio controller in this "
+                "computer, because the option is set controller by "
+                "controller; the ones without this codec carry on as "
+                "before.", hang="   ")
+          if copies > 1 else []),
         ("", ""),
         # Two independent confirmations, and the audible one leads because it
         # is the one the user cares about.

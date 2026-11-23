@@ -1000,6 +1000,55 @@ def hda_model_module(uses_sof: bool,
     return "snd_hda_intel", "model"
 
 
+_PCI_ADDRESS_RE = re.compile(r"[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]")
+
+
+def hda_model_option(model: str, uses_sof: bool,
+                     module_root=Path("/sys/module"),
+                     driver_root=Path("/sys/bus/pci/drivers/snd_hda_intel"),
+                     pci_root=Path("/sys/bus/pci/devices"),
+                     ) -> tuple[str, int]:
+    """``("options <module> <param>=<value>", copies)`` forcing fixup *model*.
+
+    SOF's ``hda_model`` is one string, but ``snd_hda_intel``'s ``model`` is an
+    array indexed by the slot each controller took at probe (``azx_probe``),
+    so a bare ``model=<name>`` reaches only the first. On a laptop with GPU
+    HDMI audio that can be the HDMI controller, and the option then does
+    nothing: #51's Yoga Pro 7 14ASP9 has HDMI on card 0 and its ALC287 on
+    card 1. The slot can't be read back from sysfs, so the name is repeated
+    once per controller. Those are counted as every PCI function of the
+    HD-audio class (0x0403) as well as every one bound to the driver, because
+    a controller switched off with ``enable=`` still takes its slot without
+    binding. Extra copies are harmless: a codec driver with no fixup of that
+    name falls through to its usual quirk match (``snd_hda_pick_fixup``), so
+    the other controllers carry on as before.
+    """
+    module, param = hda_model_module(uses_sof, module_root)
+    copies = 1
+    if module == "snd_hda_intel":
+        copies = max(1, _count_pci_functions(
+            driver_root, lambda p: True), _count_pci_functions(
+            pci_root, lambda p: p.joinpath("class").read_text()
+            .startswith("0x0403")))
+    return f"options {module} {param}={','.join([model] * copies)}", copies
+
+
+def _count_pci_functions(root: Path, keep) -> int:
+    """How many PCI-address entries of *root* pass *keep*; 0 if unreadable."""
+    try:
+        entries = [p for p in host.path(root).iterdir()
+                   if _PCI_ADDRESS_RE.fullmatch(p.name)]
+    except OSError:
+        return 0
+    count = 0
+    for p in entries:
+        try:
+            count += bool(keep(p))
+        except OSError:
+            pass
+    return count
+
+
 def _ssid_key(ssid: str) -> tuple[int, int] | None:
     """``("17AA22E6")`` → ``(0x17AA, 0x22E6)``; None if not an 8-hex-digit id."""
     if not re.fullmatch(r"[0-9A-Fa-f]{8}", ssid or ""):

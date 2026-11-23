@@ -392,7 +392,18 @@ Design choices:
 - **The modprobe module is derived, not hardcoded.** It is scanned from
   `/sys/module/*/parameters/hda_model`. SOF exposes it on
   `snd_sof_intel_hda_generic` today and on `snd_sof_intel_hda_common` before the
-  generic split. The legacy path is `snd_hda_intel model=`.
+  generic split. The legacy path is `snd_hda_intel model=`, an array indexed by
+  the slot each controller took at probe, so a bare name reaches only the
+  first. #51's Yoga Pro 7 14ASP9 has HDMI on card 0 and its ALC287 on card 1.
+  The slot can't be read back from sysfs, so the name is repeated once per
+  controller: every PCI function of the HD-audio class (0x0403), and every one
+  bound to `snd_hda_intel`, whichever count is larger. Bound ones alone fall
+  short, because a controller switched off with `enable=` still takes its slot
+  (`azx_probe` sets the bit before returning `-ENOENT`). A dGPU whose PCI
+  functions are removed after boot, as hybrid-graphics switchers do, still
+  undercounts. A codec with no fixup of that name
+  falls through to its usual quirk match (`snd_hda_pick_fixup`), so the other
+  controllers are unaffected.
 - **Regenerated wholesale, weekly** (`tools/update_speaker_pin_quirks.py`,
   `.github/workflows/speaker-quirks.yml`), unlike the append-only kernel table.
   Entries can disappear upstream, and a stale one would tell a user to force a
