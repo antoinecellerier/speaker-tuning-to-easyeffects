@@ -167,3 +167,18 @@ jobs:
             --model sonnet
             --allowedTools "${{ steps.refs.outputs.allowed_tools }}"
 
+
+      # The transcript, for when a run fails without saying why: the action
+      # hides Claude's output from the log, debug reruns included. The path
+      # falls back to runner.temp because the action sets no step outputs
+      # when it fails, which is exactly when this is needed. The repo is
+      # public, so any signed-in user can download it; it holds the trigger
+      # text and what Claude read and ran. Short retention for that reason.
+      - name: Upload Claude execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+          if-no-files-found: warn
+          retention-days: 14
