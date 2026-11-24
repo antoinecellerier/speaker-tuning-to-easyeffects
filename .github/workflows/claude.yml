@@ -176,7 +176,7 @@ jobs:
       # text and what Claude read and ran. Short retention for that reason.
       - name: Upload Claude execution log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: claude-execution-log-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.claude.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}

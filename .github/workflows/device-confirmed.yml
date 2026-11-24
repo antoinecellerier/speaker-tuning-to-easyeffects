@@ -551,7 +551,7 @@ jobs:
       # still worth re-triggering.
       - name: Upload Claude execution log
         if: always() && steps.claude.outputs.execution_file != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: claude-execution-log-issue-${{ github.event.issue.number }}
           path: ${{ steps.claude.outputs.execution_file }}
