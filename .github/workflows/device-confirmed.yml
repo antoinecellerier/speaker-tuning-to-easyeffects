@@ -31,6 +31,7 @@ name: Mark confirmed device as tested
 #     a `--search` holding that token — to that host. Claude's own text
 #     reaches GitHub only through the steps after the action, once the
 #     token is dead.
+#   - Its Anthropic credential is federated and short-lived (claude.yml).
 #   - The PR is reviewed by a human before merge; nothing here auto-merges,
 #     and a branch ruleset rejects a direct push to master.
 #
@@ -202,7 +203,13 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Short-lived federated credential, not a stored secret: this run
+          # reads issue text anyone can write. Rationale and the Console
+          # setup: the same block in claude.yml.
+          anthropic_federation_rule_id: fdrl_01LiAu14zPSDcmrpQmuyt7dk
+          anthropic_organization_id: efda1e56-e140-4f5d-b3aa-91b37bec855b
+          anthropic_service_account_id: svac_015oVDzSUiPX2UddVYDK92T1
+          anthropic_workspace_id: wrkspc_01PyszgP4UNYsrezb9nHzh8U
 
           prompt: |
             Issue #${{ github.event.issue.number }} in this repository just
