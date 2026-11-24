@@ -136,7 +136,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ASUS Vivobook Pro 15 (M6500QC)
   ([#163](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/163)),
   HP EliteBook 845 G9
-  ([#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165)).
+  ([#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165)),
+  ASUS Zenbook 14 OLED (UM3402YAR)
+  ([#168](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/168)).
 
 ### Fixed
 
