@@ -301,9 +301,10 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | ASUS Vivobook Pro 15 (M6500QC) <!-- Realtek ALC294, 1043:11D3 --> | [#163](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/163) |
 | ASUS Vivobook Pro 15 (N6506MJ) <!-- Realtek ALC294, 1043:1D43 --> | [#158](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/158) |
 | ASUS Zenbook 14 (UM3406HA) <!-- Realtek ALC294, 1043:1C03 --> | [#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134) — reporter recommends `--enable autogain` |
-| ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
-| ASUS Zenbook 15 UM3504DA <!-- Realtek ALC294, 1043:18D3 --> | [#161](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/161) |
-| ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
+| ASUS Zenbook 14 (UX3405CA, UX3405MA) <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
+| ASUS Zenbook 14 OLED (UM3402YAR) <!-- Realtek ALC294, 1043:1683 --> | [#168](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/168) |
+| ASUS Zenbook 15 (UM3504DA) <!-- Realtek ALC294, 1043:18D3 --> | [#161](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/161) |
+| ASUS Zenbook Pro 16X OLED (UX7602BZ) <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
 | HP EliteBook 845 G9 <!-- Realtek ALC245, 103C:8991 --> | [#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165) — experimental, from its [Sonitude tuning](docs/sonitude.md) |
 | HP ZBook 15 G6 <!-- Realtek ALC285, 103C:860F --> | [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140) — experimental, from its [Sonitude tuning](docs/sonitude.md); reporter finds Movie matching Windows, and Music and Voice close with less bass |
