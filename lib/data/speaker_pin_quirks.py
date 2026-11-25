@@ -150,6 +150,7 @@ _SPEAKER_PIN_QUIRKS = {
     (0x17AA, 0x38CF): PinQuirk("", pins="0x17", since="7.0", codec_only=True, commit="217d5bc9f962"),
     (0x17AA, 0x38D2): PinQuirk("", pins="0x17", since="6.10", codec_only=False, commit="9b714a59b719"),
     (0x17AA, 0x38D7): PinQuirk("", pins="0x17", since="6.10", codec_only=False, commit="9b714a59b719"),
+    (0x17AA, 0x3903): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=True, commit="8837de32d316"),
     (0x17AA, 0x390D): PinQuirk("", pins="0x17", since="6.15", codec_only=False, commit="42597bb78a34"),
     (0x17AA, 0x3911): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=False, commit="f0541edb2e73"),
     (0x17AA, 0x3912): PinQuirk("", pins="0x17", since="7.2", codec_only=False, commit="2fc28b1186d6"),
