@@ -109,6 +109,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- Lenovo machine type and HDA codec IDs are detected on FreeBSD as well as
+  Linux, so a run no longer reports that no HDA devices are present. The fetcher
+  reads `kenv`'s SMBIOS fields and the converters read `dev.hdacc`/`dev.hdaa`
+  sysctls; `--machine-type` still overrides either.
 - The PipeWire filter is bypassed on headphones that share one sink with the
   speakers, through a WirePlumber hook installed when the target sink has such
   a port. `--speaker-port-hook off` skips it, and the two WirePlumber folder

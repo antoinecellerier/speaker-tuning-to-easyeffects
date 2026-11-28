@@ -314,6 +314,30 @@ def test_sound_cards_still_resolve_to_a_pci_subsystem():
     assert pci and all(re.fullmatch(r"[0-9A-F]{4}", part) for part in pci), pci
 
 
+def test_freebsd_hda_sysctls_still_parse():
+    """FreeBSD has no /proc/asound: codec and PCI ids come from sysctl."""
+    if platform.system() != "FreeBSD":
+        pytest.skip("not FreeBSD")
+    if not tool_env.which("sysctl"):
+        pytest.skip("no sysctl")
+    if not codecs._freebsd_sysctl_nodes("dev.hdacc"):
+        pytest.skip("no HDA codec")
+    ids = codecs.get_hda_codec_ids()
+    assert ids and all(v and s for v, s, _ in ids), ids
+    pci = codecs.get_pci_audio_subsystem()
+    assert pci and all(re.fullmatch(r"[0-9A-F]{4}", part) for part in pci), pci
+
+
+def test_freebsd_smbios_kenv_still_answers():
+    """The fetcher's machine-type route on FreeBSD, where sysfs is absent."""
+    if platform.system() != "FreeBSD":
+        pytest.skip("not FreeBSD")
+    if not tool_env.which("kenv"):
+        pytest.skip("no kenv")
+    from tools.fetch_driver import get_lenovo_dax_xml as fetcher
+    assert fetcher._kenv("smbios.system.maker")
+
+
 def test_soundwire_devices_still_parse():
     bus = Path("/sys/bus/soundwire/devices")
     if not bus.is_dir() or not any(bus.iterdir()):

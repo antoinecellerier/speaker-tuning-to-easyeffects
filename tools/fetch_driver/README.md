@@ -19,7 +19,9 @@ python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch + verify + 
 
 What it does:
 
-1. Reads the Lenovo machine type and HDA codec IDs from sysfs / `/proc/asound`.
+1. Reads the Lenovo machine type and HDA codec IDs from sysfs / `/proc/asound`
+   on Linux, or from `kenv smbios.system.*` and `dev.hdacc`/`dev.hdaa` sysctls
+   on FreeBSD. `--machine-type` still overrides the detected type.
 2. Downloads the machine-type catalog from `download.lenovo.com`. It picks the
    audio package whose descriptor advertises this machine's codec as a
    HardwareID, such as `VEN_10EC&DEV_xxxx`. Ties go to the Dolby DAX3 APO,
@@ -35,8 +37,9 @@ What it does:
    and takes `--windows DIR` where it wouldn't.
 
 Prerequisites: `innoextract`. If it's missing, the script names the package
-for your distro. The repo README lists the converters' own dependencies, such
-as `lsp-plugins-lv2`. You only need them once you run a converter.
+for your Linux distro; on FreeBSD install `archivers/innoextract` from ports
+or packages first. The repo README lists the converters' own dependencies,
+such as `lsp-plugins-lv2`. You only need them once you run a converter.
 
 Flags: `--windows-version {11,10,both}`, `--exe-url URL` to skip catalog
 resolution, `--machine-type MT`, `--driver-cache DIR`, `--keep-exe`,

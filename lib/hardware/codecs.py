@@ -11,19 +11,78 @@ controller to believe on a machine that has several — because the answer has
 to be the analog codec's rather than a discrete GPU's HDMI function (issue
 #33).
 
-Standard library only, and no subprocesses: a handful of reads under
-``/proc/asound`` and ``/sys``, so importing it costs nothing
+Standard library only, and nothing runs at import: a handful of reads under
+``/proc/asound`` and ``/sys`` on Linux, of ``sysctl`` through
+``lib.tool_env`` on FreeBSD, so importing it costs nothing
 (``tests/test_layout.py``'s ``STDLIB_ONLY``).
 """
 
+import platform
 import re
 from pathlib import Path
 
-from lib import host
+from lib import host, tool_env
+
+
+def _is_freebsd() -> bool:
+    """True where the machine's audio ids come from sysctl, not /proc and /sys."""
+    return platform.system() == "FreeBSD"
+
+
+# FreeBSD's HDA driver exposes the same two ids that Linux prints in
+# /proc/asound/card*/codec#*, split across the codec and its audio function
+# group: dev.hdacc.N.%pnpinfo holds vendor/device, dev.hdaa.N.%pnpinfo the
+# subsystem. Both are read through tool_env so the suite's tool gate applies.
+_FREEBSD_VENDOR_RE = re.compile(r"\bvendor=0x([0-9a-fA-F]{4})\b")
+_FREEBSD_DEVICE_RE = re.compile(r"\bdevice=0x([0-9a-fA-F]{4})\b")
+_FREEBSD_SUBSYS_RE = re.compile(r"\bsubsystem=0x([0-9a-fA-F]{8})\b")
+_FREEBSD_SUBVENDOR_RE = re.compile(r"\bsubvendor=0x([0-9a-fA-F]{4})\b")
+_FREEBSD_SUBDEVICE_RE = re.compile(r"\bsubdevice=0x([0-9a-fA-F]{4})\b")
+
+
+def _freebsd_sysctl(oid: str) -> str:
+    """One FreeBSD sysctl's raw value (``sysctl -b``), or "" if unreadable.
+
+    Through ``lib.tool_env``, the same door every external tool in lib/ uses:
+    with the suite's ``ATMOS_NO_LIVE_TOOLS`` set this raises, which a test
+    sees as a machine with no codecs rather than a call to the real hardware.
+    """
+    try:
+        result = tool_env.run(["sysctl", "-b", oid],
+                              capture_output=True, text=True)
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _freebsd_sysctl_nodes(prefix: str) -> list[tuple[int, str]]:
+    """The numbered ``prefix.N`` device nodes, sorted by N.
+
+    ``sysctl -N`` lists children and attributes in driver order, not numeric
+    order (hdacc1 came before hdacc0 on the machine this was written on), so
+    sort here to keep the result deterministic.
+    """
+    try:
+        result = tool_env.run(["sysctl", "-N", prefix],
+                              capture_output=True, text=True)
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    node_re = re.compile(rf"{re.escape(prefix)}\.(\d+)")
+    nodes = [(int(m.group(1)), line.strip())
+             for line in result.stdout.splitlines()
+             if (m := node_re.fullmatch(line.strip()))]
+    return sorted(nodes)
 
 
 def get_hda_codec_ids():
-    """Read HDA codec names and subsystem IDs from /proc/asound.
+    """Read HDA codec names and subsystem IDs from the machine.
+
+    Linux reads ``/proc/asound/card*/codec*``; FreeBSD reads the matching
+    ``dev.hdacc.N`` and ``dev.hdaa.N`` sysctls. A codec dump under
+    ``ATMOS_HOST_ROOT`` wins on either OS, which is what keeps
+    ``tools/fake_host.py``'s synthetic tree readable everywhere.
 
     Returns a list of (vendor_id, subsystem_id, codec_name) tuples, e.g.
     [("10EC0287", "17AA22E6", "Realtek ALC287")].
@@ -46,7 +105,25 @@ def get_hda_codec_ids():
                 subsys_id = line.split("0x", 1)[-1].strip().upper()
         if vendor_id and subsys_id:
             results.append((vendor_id, subsys_id, codec_name))
-    return results
+    if results or not _is_freebsd():
+        return results
+
+    ids = []
+    for number, node in _freebsd_sysctl_nodes("dev.hdacc"):
+        pnp = _freebsd_sysctl(f"{node}.%pnpinfo")
+        vendor = _FREEBSD_VENDOR_RE.search(pnp)
+        device = _FREEBSD_DEVICE_RE.search(pnp)
+        subsys = _FREEBSD_SUBSYS_RE.search(
+            _freebsd_sysctl(f"dev.hdaa.{number}.%pnpinfo"))
+        if not (vendor and device and subsys):
+            continue
+        # The FreeBSD description ends in " HDA CODEC", a suffix Linux's
+        # /proc/asound name doesn't carry; drop it so both read "ALC257".
+        name = re.sub(r"\s+HDA CODEC$", "", _freebsd_sysctl(f"{node}.%desc"),
+                      flags=re.I)
+        ids.append((f"{vendor.group(1)}{device.group(1)}".upper(),
+                    subsys.group(1).upper(), name))
+    return ids
 
 
 def get_hda_codec_ids_without_display():
@@ -137,6 +214,30 @@ def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
     return 0
 
 
+def _freebsd_pci_subsystem():
+    """PCI subsystem of the analog HDA controller, or None.
+
+    FreeBSD puts the same ``subvendor``/``subdevice`` ids Linux walks up to in
+    sysfs on each ``dev.hdac.N.%pnpinfo``. A display codec's controller is
+    ranked last, as the Linux path ranks a GPU's HDMI function last: its
+    subsystem identifies the GPU, not the machine's SKU.
+    """
+    ranked = []
+    for number, node in _freebsd_sysctl_nodes("dev.hdac"):
+        pnp = _freebsd_sysctl(f"{node}.%pnpinfo")
+        vendor = _FREEBSD_SUBVENDOR_RE.search(pnp)
+        device = _FREEBSD_SUBDEVICE_RE.search(pnp)
+        if not (vendor and device):
+            continue
+        codec = _freebsd_sysctl(f"dev.hdacc.{number}.%desc").upper()
+        afg = _freebsd_sysctl(f"dev.hdaa.{number}.%desc").upper()
+        display = any(word in codec or word in afg
+                      for word in ("HDMI", "DISPLAYPORT"))
+        ranked.append((display, number,
+                       (vendor.group(1).upper(), device.group(1).upper())))
+    return min(ranked)[2] if ranked else None
+
+
 def get_pci_audio_subsystem(
     sound_class=Path("/sys/class/sound"),
     proc_asound=Path("/proc/asound"),
@@ -150,8 +251,10 @@ def get_pci_audio_subsystem(
     Prefers the PCI ancestor of a SoundWire device when present so we pick
     the controller that actually hosts the speaker amplifiers. Whichever
     /sys/class/sound card sorts first may be HDMI audio on a discrete GPU.
-    Traditional HDA systems fall back to walking up from sound cards, ranked
-    so the analog codec's controller wins over a GPU HDMI function. On AMD
+    On FreeBSD, where there is no sysfs, the same ids come from
+    ``dev.hdac.N.%pnpinfo``. Traditional HDA systems on Linux fall back to
+    walking up from sound cards, ranked so the analog codec's controller wins
+    over a GPU HDMI function. On AMD
     dual-controller laptops card0 is the GPU audio function with its own PCI
     subsystem id. Issue #33 reported 17AA:3823 where the analog controller was
     a different device, and the analog controller's id is the one kernel
@@ -165,6 +268,8 @@ def get_pci_audio_subsystem(
         sdw_bus = SDW_BUS
     sdw_bus = host.path(sdw_bus)
     sound_class, proc_asound = host.path(sound_class), host.path(proc_asound)
+    if _is_freebsd() and not sound_class.is_dir():
+        return _freebsd_pci_subsystem()
     if sdw_bus.is_dir():
         for dev_dir in sorted(sdw_bus.iterdir()):
             result = _walk_to_pci_subsys(dev_dir)

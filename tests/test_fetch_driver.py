@@ -5,6 +5,7 @@ No network: `_get` is monkeypatched to serve canned catalog / descriptor XML.
 
 import hashlib
 import re
+import subprocess
 
 import pytest
 
@@ -214,6 +215,61 @@ def test_machine_type_parsing(monkeypatch, field, value, expect):
 def test_machine_type_empty_when_not_lenovo(monkeypatch):
     monkeypatch.setattr(g, "_dmi", lambda f: "Dell Inc." if f == "sys_vendor" else "x")
     assert g.machine_type() == ""
+
+
+@pytest.mark.parametrize("maker,sku,product,expect", [
+    # The machine this was reported on: kenv's product alone identifies it.
+    ("LENOVO", "", "20U6S12200", "20U6"),
+    # Lenovo also puts an explicit MT_ token in the SMBIOS SKU.
+    ("LENOVO", "LENOVO_MT_20XL_BU_Think_FM_ThinkPad T14 Gen 2a", "", "20XL"),
+    # A marketing name is no more a machine type on FreeBSD than on Linux.
+    ("LENOVO", "", "ThinkPad L14 Gen 1", ""),
+    ("Dell Inc.", "", "20U6S12200", ""),
+])
+def test_freebsd_machine_type_parsing(monkeypatch, maker, sku, product, expect):
+    fields = {
+        "smbios.system.maker": maker,
+        "smbios.system.sku": sku,
+        "smbios.system.product": product,
+    }
+    monkeypatch.setattr(g, "_is_freebsd", lambda: True)
+    monkeypatch.setattr(g, "_kenv", lambda key: fields.get(key, ""))
+    assert g.machine_type() == expect
+
+
+def test_freebsd_dmi_maps_sysfs_fields_to_kenv_keys(monkeypatch):
+    seen = []
+
+    def kenv(key):
+        seen.append(key)
+        return "value"
+
+    monkeypatch.setattr(g, "_is_freebsd", lambda: True)
+    monkeypatch.setattr(g, "_kenv", kenv)
+    assert [g._dmi(f) for f in ("sys_vendor", "product_sku", "product_name")] == [
+        "value"] * 3
+    assert seen == ["smbios.system.maker", "smbios.system.sku",
+                    "smbios.system.product"]
+
+
+def test_kenv_goes_through_the_tool_door(monkeypatch):
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "LENOVO\n", "")
+
+    monkeypatch.setattr(g.tool_env, "run", run)
+    assert g._kenv("smbios.system.maker") == "LENOVO"
+    assert seen == [["kenv", "smbios.system.maker"]]
+
+
+def test_kenv_with_no_tool_reports_no_vendor(monkeypatch):
+    def run(argv, **kwargs):
+        raise FileNotFoundError("kenv is gated")
+
+    monkeypatch.setattr(g.tool_env, "run", run)
+    assert g._kenv("smbios.system.maker") == ""
 
 
 def _inno_exe(tmp_path):
