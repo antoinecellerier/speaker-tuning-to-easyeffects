@@ -2643,6 +2643,13 @@ def test_closing_names_a_speaker_fault_raised_mid_run(silence_console, capsys):
     out = " ".join(capsys.readouterr().out.split())
     assert "[firmware-gate] and [speaker-pin] above" in out
     assert "each says what" in out
+    # --autoload, the Quick start's run, returns before the rest of the block.
+    messages.print_what_now(names, True, False,
+                            speaker_faults=("speaker-routing",))
+    out = " ".join(capsys.readouterr().out.split())
+    assert "see [speaker-routing] above" in out
+    messages.print_what_now(names, True, False)
+    assert capsys.readouterr().out == ""
 
 
 def test_speaker_fault_slugs_name_real_findings():

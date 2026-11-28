@@ -213,6 +213,18 @@ SPEAKER_FAULT_SLUGS = ("firmware-gate", "speaker-pin", "speaker-routing",
                        "speaker-fixed-level")
 
 
+def _print_speaker_faults(speaker_faults: tuple[str, ...]) -> None:
+    """Point back at the speaker warnings this run raised mid-run."""
+    if not speaker_faults:
+        return
+    tags = " and ".join(f"[{slug}]" for slug in speaker_faults)
+    console._cprint_wrapped(
+        "warn", f"  Before judging the sound, see {tags} above: Linux is "
+        "driving your speakers in a way no preset can make up for, and "
+        f"{'each' if len(speaker_faults) > 1 else 'it'} says what can be "
+        "done.", indent="  ")
+
+
 def print_what_now(preset_names: list[str], autoloaded: bool,
                    dry_run: bool, output_dir=None,
                    profile_used: str | None = None,
@@ -280,7 +292,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     never sees, and then judges presets playing on speakers Linux is driving
     wrong.
     """
-    if not preset_names or autoloaded:
+    if not preset_names:
+        return
+    if autoloaded:
+        # The autoload summary is this run's closing, so the faults are all
+        # this block adds to it.
+        _print_speaker_faults(speaker_faults)
         return
     first = start_with or preset_names[0]
     # One wording for both branches. The swell/duck caveat rides the
@@ -476,13 +493,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "Or re-run with "
                                "--autoload to have it load itself for your "
                                "speakers.", indent="  ")
-    if speaker_faults:
-        tags = " and ".join(f"[{slug}]" for slug in speaker_faults)
-        console._cprint_wrapped(
-            "warn", f"  Before judging the sound, see {tags} above: Linux is "
-            "driving your speakers in a way no preset can make up for, and "
-            f"{'each' if len(speaker_faults) > 1 else 'it'} says what can be "
-            "done.", indent="  ")
+    _print_speaker_faults(speaker_faults)
     if modes_note:
         console._cprint_wrapped("dim", modes_note, indent="  ")
     if mismatch_note:
