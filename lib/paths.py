@@ -9,11 +9,12 @@ hops, and each of those is a silent breakage waiting for the next move.
 So the walk-up is written once, here, and everything else asks. Stdlib-only,
 like the rest of what ``ee_to_pipewire.py`` imports at startup.
 
-Two callers. ``lib/driver_package.py`` keeps its default download cache in the
-checkout's ``driver-cache/`` (gitignored) rather than under
+Three callers. ``lib/driver_package.py`` keeps its default download cache in
+the checkout's ``driver-cache/`` (gitignored) rather than under
 ``$XDG_CACHE_HOME``, so that a bare run from the project root finds what an
 earlier run unpacked, through the same probe that finds a hand-unpacked
 download there. ``lib/version.py`` asks ``git describe`` only in a checkout.
+``lib/invocation.py`` tells an installed command from a checkout's script.
 The scripts under ``tools/`` each walk up from their own depth instead,
 because they also insert the result into ``sys.path`` before any ``lib``
 import can happen: docs/code-organisation.md "The rules that keep provenance".

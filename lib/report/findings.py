@@ -263,17 +263,18 @@ def _dax2_finding() -> Finding:
     DAX2 stores its tuning as numbered registry values, which carry no
     names. The numbers are read as the fields a DAX3 preset in the same
     registry form matches, and the on/off switches by the fields beside
-    them: research `r-dolby-registry-preset`. One listener has heard one
-    device's, against Windows from memory only, so the ask names the
+    them: research `r-dolby-registry-preset`. Two listeners have heard one
+    laptop model's, neither beside Windows, so the ask names the
     comparison that would check it.
     """
     return Finding(
         slug="dax2-tuning-unconfirmed", kind="ask",
         detail="Experimental. This older Dolby format stores its settings "
                "without names, so the tool infers what each one is, "
-               "including which stages are on. One listener has heard one "
-               "laptop's preset and found it about on par with Windows, from "
-               "memory; nobody has compared one with Windows side by side.",
+               "including which stages are on. Two listeners have heard one "
+               "laptop model's preset, and one found it about on par with "
+               "Windows, from memory; nobody has compared one with Windows "
+               "side by side.",
         ask="If this device also runs Windows, compare the preset with Dolby "
             "switched on there: how close is it?")
 

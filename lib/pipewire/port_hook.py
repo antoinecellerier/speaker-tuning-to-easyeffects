@@ -11,7 +11,9 @@ it. It watches the target sink's active route, and while that route's
 on the filter in the ``filters`` metadata, WirePlumber's own runtime
 override (its "Smart Filters" policy page). Streams then link straight to
 the sink. It acts only on filters whose conf carries `MARKER`, so the script
-is the same text on every machine and nobody else's filter is touched.
+is the same text on every machine and nobody else's filter is touched. A sink
+with no port typed ``speaker`` is left alone, and so is a filter that is
+itself the selected output.
 
 Both files are text constants because ``lib/`` holds only Python
 (``tests/test_packaging.py``). Stdlib-only: the entry script decides when to

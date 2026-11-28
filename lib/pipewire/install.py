@@ -363,8 +363,8 @@ def _print_built_elsewhere(files: list[Path], head: str = "") -> None:
         "The conf names its impulse file by the path given to "
         "--pipewire-confd-dir, so that must be the folder the files stay "
         "in, as a Nix package's $out is, not a staging copy. They take "
-        "effect once PipeWire and WirePlumber read these folders and "
-        "PipeWire restarts. The complete set:", indent="  ")
+        "effect once PipeWire, and WirePlumber for any hook files, read "
+        "these folders and PipeWire restarts. The complete set:", indent="  ")
     for path in files:
         console.cprint("dim", f"    {path}")
 

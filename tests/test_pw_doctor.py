@@ -1141,6 +1141,18 @@ def test_conf_with_no_node_is_a_failure(tmp_path):
     assert result.status == DOCTOR_FAIL
     assert "Dolby_Balanced.conf" in result.detail
     assert "plugin" in result.detail
+    assert result.steps
+
+
+def test_conf_in_an_unread_folder_is_not_told_to_restart(tmp_path):
+    """TRAP: a restart loads nothing from a folder PipeWire doesn't read, so
+    the plugin causes and the restart step would send the reader wrong."""
+    confs = [_conf(tmp_path, "Dolby_Balanced")]
+    result = checks.check_confs_loaded(confs, [], dump=[], unread_dir=True)
+    assert result.status == DOCTOR_FAIL
+    assert "Dolby_Balanced.conf" in result.detail
+    assert "doesn't read" in result.detail
+    assert "plugin" not in result.detail and not result.steps
 
 
 def test_conf_present_in_graph_passes(tmp_path):

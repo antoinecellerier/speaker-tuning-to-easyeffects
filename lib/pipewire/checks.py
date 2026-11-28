@@ -19,9 +19,10 @@ the same ``installed_confs``.
 directory reads it here (``check_conf_directory``, ``gather_pw_doctor``,
 ``_environment_lines``). It is also the one constant the suite patches to
 point the doctor at a temporary tree, so it has to be one binding, not a name
-copied in from elsewhere. Its reader outside is ``ee_to_pipewire.py``: the
-``--pipewire-confd-dir`` help default, and ``confd_dir``, which both
-converters resolve the folder through.
+copied in from elsewhere. Its readers outside are ``ee_to_pipewire.py``, for
+the ``--pipewire-confd-dir`` help default and ``confd_dir``, which both
+converters resolve the folder through, and ``lib/pipewire/install.py``, for
+the undo line.
 
 The report vocabulary comes from ``lib/doctor.py``, shared with the
 EasyEffects doctor so the two read as one tool: PASS/WARN/FAIL/UNKNOWN,
@@ -632,7 +633,8 @@ def check_crowded_chains(chains, confs) -> CheckResult | None:
                        detail, _RESTART_STEPS)
 
 
-def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
+def check_confs_loaded(confs, chains, dump,
+                       unread_dir: bool = False) -> CheckResult | None:
     """A conf on disk with no node in the graph.
 
     module-filter-chain drops the *whole file* when a plugin it names is
@@ -641,6 +643,9 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
 
     Only confs whose contents were readable can be judged: the node name is
     what there is to look for, and without `spa-json-dump` there isn't one.
+
+    ``unread_dir`` says the confs sit in a folder PipeWire doesn't read on
+    this machine (`is_live_conf_dir`), where a restart loads nothing.
     """
     if not confs:
         return None
@@ -678,6 +683,13 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
             f"{len(readable)} conf(s), all present in the graph."
             + (f" {unread} more couldn't be read and weren't checked."
                if unread else ""))
+    if unread_dir:
+        return CheckResult(
+            DOCTOR_FAIL, "Chains loaded",
+            f"{len(missing)} of {len(readable)} conf(s) are on disk but absent "
+            f"from the graph ({', '.join(str(c.path.name) for c in missing)}). "
+            "They are in a folder PipeWire doesn't read on this machine, so "
+            "restarting it loads nothing from there.")
     return CheckResult(
         DOCTOR_FAIL, "Chains loaded",
         f"{len(missing)} of {len(readable)} conf(s) are on disk but absent from "
@@ -1200,11 +1212,14 @@ def check_speaker_port(chains, confs, dump, defaults: DefaultSink,
                 f"its speaker tuning there. {why}",
                 steps=(("cta", PIPEWIRE_RESTART_CMD),))
         if bypassed:
+            state = ("although the speakers are the active output"
+                     if active is not None else
+                     "and which output is active couldn't be read")
             return CheckResult(
                 DOCTOR_WARN, "Speaker port",
-                f"{chain.name} is switched off although the speakers are the "
-                "active output, so audio plays untreated. Restarting "
-                "PipeWire starts it afresh:",
+                f"{chain.name} is switched off {state}, so audio on the "
+                "speakers plays untreated. Restarting PipeWire starts it "
+                "afresh:",
                 steps=(("cta", PIPEWIRE_RESTART_CMD),))
         if not hook_installed:
             # Not a WARN: a hook installed system-wide is as good, and is
@@ -1218,7 +1233,10 @@ def check_speaker_port(chains, confs, dump, defaults: DefaultSink,
         return CheckResult(
             DOCTOR_PASS, "Speaker port",
             f"{chain.name} plays on the speakers, and is switched off "
-            f"while the active output is: {names}.")
+            f"while the active output is: {names}."
+            # The hook leaves a selected chain on: the branch above.
+            + (" It stays on there while it is your selected output."
+               if defaults.effective == node else ""))
     return None
 
 
@@ -1528,7 +1546,8 @@ def gather_pw_doctor(
         check_conf_contents(confs),
         check_stacked_chains(chains, confs),
         check_crowded_chains(chains, confs),
-        check_confs_loaded(confs, chains, dump),
+        check_confs_loaded(confs, chains, dump,
+                           unread_dir=not is_live_conf_dir(conf_dir)),
         # Directly under the check whose detail points at them, the loader
         # first: without it, every plugin the next check finds still fails
         # to load.

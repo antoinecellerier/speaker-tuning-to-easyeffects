@@ -9,7 +9,7 @@ they stay put, and everything they lean on lives here instead.
 This package sits at the repo root rather than under ``src/`` because a clone
 runs it in place. An installed package carries it as
 ``speaker_tuning_to_easyeffects/lib/`` (pyproject.toml), and `lib.launch` puts
-that folder on ``sys.path`` to the same end. The repo root is already on
+the folder holding it on ``sys.path`` to the same end. The repo root is already on
 ``sys.path`` everywhere that matters (a script's own directory,
 ``tests/conftest.py``, the ``tools/measure_*`` harnesses), so
 ``import lib.version`` resolves with no path juggling at any of those call
