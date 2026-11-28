@@ -152,12 +152,14 @@ _NAMES = {
     # PipeWire's LV2 loader for filter chains: the filter-graph plugin
     # `libspa-filter-graph-plugin-lv2.so` from 1.4, the module
     # `libpipewire-module-filter-chain-lv2.so` on 0.3.73-1.2 (issue #123).
-    # The Debian row is Ubuntu's name, from 25.10: Debian folds the loader
-    # into `libspa-0.2-modules`, a hard dependency of libpipewire, and has no
-    # `-extra` package. Ubuntu 24.04 and EL build PipeWire without LV2. Both
-    # rows are in `_KNOWN_GAPS`, so the name is printed only where the
-    # package manager has it. Arch's `pipewire-audio` also carries the graph
-    # core every filter chain needs. Alpine edge splits the graph core
+    # The Debian row is Ubuntu's name from 25.10, and Debian's own from
+    # pipewire 1.6.11-1, which moved the loader out of `libspa-0.2-modules`
+    # into a package that one only Suggests, so an upgrade drops the loader
+    # without saying so. Earlier Debian folds it into `libspa-0.2-modules`
+    # and has no `-extra` package. Ubuntu 24.04 and EL build PipeWire without
+    # LV2. Both rows are in `_KNOWN_GAPS`, so the name is printed only where
+    # the package manager has it. Arch's `pipewire-audio` also carries the
+    # graph core every filter chain needs. Alpine edge splits the graph core
     # (`pipewire-filter-graph`) from one package per plugin type; its stable
     # releases ship the loader in `pipewire-libs`, which PipeWire needs, so
     # only edge can be missing it. openSUSE and NixOS ship it in packages

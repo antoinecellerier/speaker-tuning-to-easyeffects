@@ -60,7 +60,7 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
 - **To check it's active later**, after a reboot for example, or if there's no
   sound or it doesn't sound right: `python3 dolby_to_pipewire.py --doctor`
   reports what's installed, what PipeWire is doing with it, and what to do
-  about each problem it finds. A report with nothing to fix ends
+  about each problem it finds. A report with nothing to fix says
   `No blocking problems detected.`
 - <a id="remove-the-filter"></a>**To remove the filter:** run
   `python3 dolby_to_pipewire.py --uninstall`. It lists every conf this tool
@@ -71,8 +71,8 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   restarts nothing when that folder is one PipeWire doesn't read. Add
   `--dry-run` to see the list only, or `--no-activate` to skip the restart.
   Files of your own are kept. Removed files go to the Trash when `gio` is
-  installed. To remove only one run's files, run the two lines that run printed
-  after "To undo".
+  installed. To remove only one run's files where several are
+  installed, run the two lines that run printed after "To undo".
 
 ## Which should I use?
 
@@ -222,14 +222,14 @@ A missing package then shows up only as a sink that never appears after the
 restart. The run says so and names the package that would have caught it.
 
 PipeWire also needs its own LV2 loader, and some distributions package it
-apart from PipeWire. Fedora is one. Without the loader, PipeWire loads no LV2
-plugin at all, while `lv2info` still finds every one. So the converter asks
-PipeWire directly, with a probe that creates no node and leaves nothing in the
-journal. If PipeWire can't load LV2 plugins, the run refuses to write the conf
-and names the package where your package manager has one. Some distributions
-build PipeWire without LV2 support, and then no package adds it. `--doctor`
-and the post-restart check ask the same question. Pass `--no-validate` to skip
-both checks.
+apart from PipeWire. Fedora is one, and Debian is another from its PipeWire
+1.6.11 packages. Without the loader, PipeWire loads no LV2 plugin at all, while
+`lv2info` still finds every one. So the converter asks PipeWire directly, with
+a probe that creates no node and leaves nothing in the journal. If PipeWire
+can't load LV2 plugins, the run refuses to write the conf and names the package
+where your package manager has one. Some distributions build PipeWire without
+LV2 support, and then no package adds it. `--doctor` and the post-restart check
+ask the same question. Pass `--no-validate` to skip both checks.
 
 The run also uses `spa-json-dump` to read the conf back. It uses `pw-cli` and
 `pw-dump` to find your speaker sink and confirm the chain loaded. These ship in
@@ -302,8 +302,9 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `Sonitude`, as in `Dolby_Balanced` or `Sonitude_Music`)
 - `--pipewire-confd-dir DIR` — folder for the generated `.conf` and `.irs` copy
   (default: `~/.config/pipewire/pipewire.conf.d`). Any other folder, such as a
-  package's, only receives the files: PipeWire is not restarted and no sink is
-  looked for.
+  package's, only receives the files: PipeWire is not restarted and the chain
+  isn't checked afterwards. The conf still targets the speaker sink found on
+  this machine, so pass `--target-sink` when building for another.
 - `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
   script, such as a package's `share/wireplumber/scripts` (default:
   `~/.local/share/wireplumber/scripts`)
@@ -379,8 +380,9 @@ and `dolby_to_pipewire.py` runs it for you.
 **Output**
 - `--pipewire-confd-dir DIR` — folder for `<node-name>.conf` and its `.irs` copy
   (default: `~/.config/pipewire/pipewire.conf.d`). Any other folder, such as a
-  package's, only receives the files: PipeWire is not restarted and no sink is
-  looked for.
+  package's, only receives the files: PipeWire is not restarted and the chain
+  isn't checked afterwards. The conf still targets the speaker sink found on
+  this machine, so pass `--target-sink` when building for another.
 - `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
   script, such as a package's `share/wireplumber/scripts` (default:
   `~/.local/share/wireplumber/scripts`)

@@ -181,8 +181,10 @@ def add_output_args(container, *, only=None):
              f"(default: {doctor.tilde(checks.DEFAULT_PW_CONFD_DIR)}, which "
              "PipeWire reads). Point it elsewhere to build the files for "
              "another location, such as a package: PipeWire is then not "
-             "restarted and no sink is looked for here, and the run lists "
-             "the files.",
+             "restarted, the chain is not checked afterwards, and the run "
+             "lists the files. The conf still targets the speaker sink "
+             "found on this machine, so pass --target-sink when building "
+             "for another.",
     )
     add(
         "--wireplumber-scripts-dir",

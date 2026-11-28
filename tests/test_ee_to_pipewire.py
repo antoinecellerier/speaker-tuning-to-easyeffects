@@ -1197,6 +1197,11 @@ def test_main_validate_runs_on_dry_run(generated, tmp_path, monkeypatch,
     import shutil as _sh
     if not _sh.which("lv2info") or not _sh.which("spa-json-dump"):
         pytest.skip("lv2info / spa-json-dump not on PATH")
+    # A known-absent loader refuses the run before validation is reached.
+    from lib.pipewire import session
+    loader = session.lv2_loader()
+    if loader.present is False:
+        pytest.skip(f"this machine's PipeWire can't load LV2: {loader}")
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"

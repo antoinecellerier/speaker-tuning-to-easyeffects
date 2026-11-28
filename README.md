@@ -6,8 +6,8 @@ drivers into [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output
 presets. Your speakers get the same speaker correction, EQ, and dynamics
 processing as on Windows, at zero added latency.
 
-Confirmed on over 50 laptops from ASUS, Framework, HP, Lenovo and Microsoft: see
-[Supported devices](#supported-devices). Tested yours?
+Confirmed on over 60 laptops from ASUS, Framework, HP, Lenovo, Microsoft and
+Motorola: see [Supported devices](#supported-devices). Tested yours?
 [Report it](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml),
 whether it works or not.
 
@@ -107,7 +107,7 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    The filter then applies each time PipeWire starts, with nothing more to
    enable. The run names any plugin it needs that's missing, and prints how to
    remove what it installed. Check it later with
-   `python3 dolby_to_pipewire.py --doctor`. A report with nothing to fix ends
+   `python3 dolby_to_pipewire.py --doctor`. A report with nothing to fix says
    `No blocking problems detected.`
 
 ### If the script can't find your tuning
@@ -334,7 +334,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | Microsoft Surface Laptop 5 <!-- Realtek ALC274, 10EC:1290 --> | [#128](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/128) |
 | Microsoft Surface Pro 9 <!-- Realtek ALC274, 10EC:1284 --> | [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113) |
 | Motorola Moto Book 60 14IRH10R (83J7) <!-- Conexant SN6140, 17AA:3830 --> | [#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121) — its tuning XML comes from the Lenovo IdeaPad Slim 5 14ARP10 (83HT) driver package |
-| ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25), [#138](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/138) — verified close-to-Windows with `--enable level-restore` |
+| ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25), [#138](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/138) — reporter recommends `--enable level-restore` |
 | ThinkPad E16 Gen 2 (21MA) <!-- Conexant CX11880, 17AA:50E2 --> | [#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144) |
 | ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
 | ThinkPad P14s Gen 7 AMD (21X0) <!-- Realtek ALC257, 17AA:5144 --> | [#171](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/171) |

@@ -107,7 +107,7 @@ python3 dolby_to_pipewire.py --doctor
 
 It checks that route's own failures: chains stacked on one sink, a conf that
 didn't load, a PipeWire that can't load LV2 plugins, a missing impulse file,
-and a target sink that's gone. A report with nothing to fix ends
+and a target sink that's gone. A report with nothing to fix says
 `No blocking problems detected.`
 
 ## Troubleshooting: correct but too quiet
