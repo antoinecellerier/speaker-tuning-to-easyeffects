@@ -22,15 +22,15 @@ reports what it finds and what to do about it.
   `dolby_to_pipewire.py --doctor` says whether the filter loaded:
   [check the PipeWire filter](#no-difference-on-the-pipewire-filter-chain).
 - **The PipeWire filter plays on wired headphones.**
-  `dolby_to_pipewire.py --doctor` says what to change.
+  `dolby_to_pipewire.py --doctor` says what to change, when the sink marks
+  one of its ports as the speakers.
   [Headphones on the speakers' sink](ee-to-pipewire.md#headphones-on-the-speakers-sink).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
 - **I re-ran the script but hear no change.** The run can't reload a Flatpak
-  EasyEffects, so pick the preset again in its Presets menu. With `--autoload`,
-  restarting EasyEffects works too. Only releases whose changelog entry is
-  tagged **[AUDIBLE]** change the sound:
+  EasyEffects, so pick the preset again in its Presets menu. Only releases
+  whose changelog entry is tagged **[AUDIBLE]** change the sound:
   [Staying up to date](../README.md#staying-up-to-date).
 - **Autoload picked the wrong output, or found none.**
   [Name the output with `--autoload-sink`](dolby-to-easyeffects.md#command-line-options).

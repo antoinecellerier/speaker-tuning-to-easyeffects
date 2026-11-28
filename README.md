@@ -292,7 +292,8 @@ regenerate.
 
 The converter works on the internal speakers of laptops, handhelds and other
 devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
-[Sonitude](docs/sonitude.md) one. Confirmed on:
+[Sonitude](docs/sonitude.md) or older
+[Dolby DAX2](docs/reference.md#dolby-dax2-input) one. Confirmed on:
 
 | Device | Reported by |
 |---|---|

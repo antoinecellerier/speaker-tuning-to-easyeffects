@@ -258,8 +258,9 @@ Limits of the hook:
   the chain on.
 - WirePlumber 0.5.0 to 0.5.5 load a custom hook after their event source has
   started, so the hook may miss headphones already plugged in at login until
-  the next port change. The install warns on those versions. Read from
-  WirePlumber's source, not observed on such a version.
+  the next port change. The install warns on those versions, except with
+  `--speaker-port-hook on`. Read from WirePlumber's source, not observed on
+  such a version.
 
 ### The selected output is remembered
 
