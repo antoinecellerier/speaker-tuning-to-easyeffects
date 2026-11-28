@@ -91,6 +91,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+## v2026.11 — Packaging Support and Improved Headphone Bypass on PipeWire
+
+The scripts install as commands with pip or pipx, and the PipeWire scripts can
+write into the folders a package chooses. Also: the PipeWire filter is bypassed
+on headphones that share one sink with the speakers, tunings whose channels
+peak at different levels keep that difference, and ten more laptops are marked
+tested.
+
 ### Changed
 
 - **[AUDIBLE]** Left and right keep the level difference the tuning asks for,
@@ -101,8 +109,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   why in `docs/research/loudness-and-limiting.md`)
 - Both PipeWire scripts take `--pipewire-confd-dir DIR`; a folder other than
   PipeWire's own gets the files only, with no restart, and `--doctor` reads
-  it. `dolby_to_pipewire.py --output-dir` still works, but where the
-  speaker-port hook applies it also needs the WirePlumber folder flags.
+  it. `dolby_to_pipewire.py --output-dir` still works; for a folder PipeWire
+  doesn't read, it also needs the WirePlumber folder flags where the
+  speaker-port hook applies.
   `ee_to_pipewire.py --output PATH` is gone: the conf is named after its sink,
   which `--node-name` sets.
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73))
@@ -116,8 +125,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   sink's ports
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
 - `--doctor` shows the output's volume and mute in both modes, and warns
-  when that output is muted. A muted PipeWire chain fails "Chain volume", and
-  the PipeWire install says when a chain comes up muted or turned down
+  when that output is muted. A muted PipeWire chain is flagged under "Chain
+  volume", and the PipeWire install says when a chain comes up muted or turned
+  down
   ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)).
 - The scripts install as commands with pip or pipx, via `pyproject.toml`. A
   read-only or installed copy unpacks driver downloads under `~/.cache`
@@ -147,21 +157,22 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 ### Fixed
 
 - The `hda_model=` command printed for a hidden or mis-routed speaker now
-  reaches the speakers on laptops with more than one HD-audio controller,
-  such as AMD laptops, whose HDMI audio has its own. It used to set only the
-  first controller, which can be the HDMI one, so rebooting changed nothing
+  repeats the name for each HD-audio controller the run sees, to reach the
+  speakers on laptops with more than one, such as AMD laptops, whose HDMI
+  audio has its own. It used to set only the first controller, which can be
+  the HDMI one, so rebooting changed nothing
   ([#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51)).
 - A speaker warning raised mid-run, such as a hidden or mis-routed speaker or
-  the smart-amp gate off, is now named in the run's closing lines. Its steps
-  scrolled off before the end, so the presets got judged on speakers Linux was
-  driving wrong.
-- The PipeWire `--doctor` fails "Installed confs" when no chain is installed,
-  instead of ending on "Nothing failed outright".
+  the smart-amp gate off, is now named in an EasyEffects run's closing lines.
+  Its steps scrolled off before the end, so the presets got judged on speakers
+  Linux was driving wrong.
+- The PipeWire `--doctor` fails "Installed confs" when no conf is installed
+  and no filter chain is loaded, instead of ending on "Nothing failed
+  outright".
 - The PipeWire scripts' plugin check and `--doctor` search where the running
-  PipeWire loads LV2 plugins from, so they agree with it on every
-  distribution. On NixOS, the missing-plugin hint names
-  `services.pipewire.extraLv2Packages`, where PipeWire looks, and the
-  PipeWire restart the new plugins need
+  PipeWire loads LV2 plugins from, instead of where the shell does. On NixOS,
+  the missing-plugin hint names `services.pipewire.extraLv2Packages`, where
+  PipeWire looks, and the PipeWire restart the new plugins need
   ([#167](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/167)).
 
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings

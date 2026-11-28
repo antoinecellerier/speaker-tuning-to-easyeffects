@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "speaker-tuning-to-easyeffects"
-version = "2026.10.1"
+version = "2026.11"
 description = "Convert the speaker tuning in Windows audio drivers (Dolby, Surface, Sonitude) into EasyEffects presets or a PipeWire filter chain"
 readme = "README.md"
 license = "MIT"
