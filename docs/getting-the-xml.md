@@ -10,8 +10,9 @@ With a Windows partition mounted, the easiest way is to run the script with no
 path, as in the README's
 [Quick start](../README.md#quick-start). It finds the XML on a mounted Windows
 partition, or in a driver package extracted in the current directory. The script
-reads your audio codec's device and subsystem IDs from `/proc/asound` and
-matches them against the XMLs in the DriverStore. `--windows DIR` points it at a
+reads your audio codec's device and subsystem IDs from `/proc/asound` on Linux,
+or from the `dev.hdacc` and `dev.hdaa` sysctls on FreeBSD, and matches them
+against the XMLs in the DriverStore. `--windows DIR` points it at a
 directory it doesn't find on its own, or picks one when it finds several, as
 [How the script finds your XML and codec](#how-the-script-finds-your-xml-and-codec)
 describes.
@@ -110,8 +111,11 @@ Match **both** parts of the filename to your codec:
 `python3 dolby_to_easyeffects.py --speaker-info` shows both IDs for each codec,
 as `Vendor:` and `Codec subsystem:`. Before the Python dependencies are
 installed, `cat /proc/asound/card*/codec* | grep -E 'Vendor|Subsystem'` shows
-them too. The subsystem alone is not enough, because Lenovo reuses subsystem IDs
-across different codecs. Picking the other codec's tuning sounds clearly wrong.
+them on Linux; on FreeBSD, `sysctl dev.hdacc.%pnpinfo dev.hdaa.%pnpinfo` shows
+the same pair as `vendor`/`device` on the codec and `subsystem` on its audio
+function group. The subsystem alone is not enough, because Lenovo reuses
+subsystem IDs across different codecs. Picking the other codec's tuning sounds
+clearly wrong.
 See the [details](cross-device-findings.md). You don't need the `_settings.xml`
 companion file, which contains UI/profile defaults.
 

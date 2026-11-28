@@ -113,7 +113,10 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
 ### If the script can't find your tuning
 
 [Getting your tuning file](docs/getting-the-tuning-file.md) says where else to
-find it.
+find it. On FreeBSD, the automatic lookup reads the codec IDs from
+`dev.hdacc`/`dev.hdaa` sysctls rather than `/proc/asound`; see
+[Picking the XML by hand](docs/getting-the-xml.md#picking-the-xml-by-hand) to
+check them yourself.
 
 To skip the automatic search, point either script at a Windows directory or a
 tuning XML yourself:

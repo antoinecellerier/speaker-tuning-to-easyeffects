@@ -2,11 +2,12 @@
 """Zero-touch fetch of a Lenovo laptop's Dolby DAX3 tuning XML.
 
 The converters (dolby_to_easyeffects.py / dolby_to_pipewire.py) need the DAX3
-tuning XML that ships inside the Windows audio driver. On a Linux-only machine
-that means hand-downloading the OEM driver EXE and running innoextract. This
-script does that step and stops there: it reads the machine type and audio
-codec IDs from sysfs, resolves the matching audio-driver package from Lenovo's
-public update catalog, downloads and checksum-verifies the EXE, extracts the
+tuning XML that ships inside the Windows audio driver. On a machine with no
+Windows partition that means hand-downloading the OEM driver EXE and running
+innoextract. This script does that step and stops there: it reads the machine
+type and audio codec IDs from sysfs on Linux, or from kenv and sysctl on
+FreeBSD, resolves the matching audio-driver package from Lenovo's public
+update catalog, downloads and checksum-verifies the EXE, extracts the
 Dolby tuning XMLs into the repo's driver-cache/ (lib/driver_package.py, the
 same unpacker the converters use on a download passed in place of the XML),
 and prints the directory to hand to whichever converter you want to run.
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import platform
 import re
 import shlex
 import shutil
@@ -34,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from lib import driver_package  # noqa: E402
+from lib import driver_package, tool_env  # noqa: E402
 from lib.dax import discover  # noqa: E402
 from lib.hardware import codecs  # noqa: E402
 
@@ -51,7 +53,32 @@ class Fail(RuntimeError):
 
 # --- machine identity -------------------------------------------------------
 
+# FreeBSD's kenv carries the same SMBIOS fields sysfs exposes on Linux.
+# The names differ, so _dmi maps the three this script asks for.
+_KENV_DMI = {
+    "sys_vendor": "smbios.system.maker",
+    "product_sku": "smbios.system.sku",
+    "product_name": "smbios.system.product",
+}
+
+
+def _is_freebsd() -> bool:
+    return platform.system() == "FreeBSD"
+
+
+def _kenv(key: str) -> str:
+    """A FreeBSD kernel-environment value, "" when it can't be read."""
+    try:
+        result = tool_env.run(["kenv", key], capture_output=True, text=True)
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def _dmi(field: str) -> str:
+    """One SMBIOS field, from sysfs on Linux or kenv on FreeBSD."""
+    if _is_freebsd():
+        return _kenv(_KENV_DMI.get(field, f"smbios.system.{field}"))
     try:
         return Path("/sys/class/dmi/id", field).read_text().strip()
     except OSError:
