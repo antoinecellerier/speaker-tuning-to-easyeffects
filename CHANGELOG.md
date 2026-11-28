@@ -138,7 +138,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   HP EliteBook 845 G9
   ([#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165)),
   ASUS Zenbook 14 OLED (UM3402YAR)
-  ([#168](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/168)).
+  ([#168](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/168)),
+  ThinkPad P14s Gen 7 AMD (21X0)
+  ([#171](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/171)).
 
 ### Fixed
 

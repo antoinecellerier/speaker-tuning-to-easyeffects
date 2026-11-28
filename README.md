@@ -337,6 +337,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25), [#138](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/138) — verified close-to-Windows with `--enable level-restore` |
 | ThinkPad E16 Gen 2 (21MA) <!-- Conexant CX11880, 17AA:50E2 --> | [#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144) |
 | ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
+| ThinkPad P14s Gen 7 AMD (21X0) <!-- Realtek ALC257, 17AA:5144 --> | [#171](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/171) |
 | ThinkPad P53 (20QQ) <!-- Conexant CX11880, 17AA:2297 --> | [#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131) |
 | ThinkPad T14 Gen 1 (20S1) <!-- Realtek ALC257, 17AA:22B1 --> | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
 | ThinkPad T14 Gen 1 AMD (20UD, 20UE) <!-- Realtek ALC257, 17AA:5081 --> | [#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45) |
