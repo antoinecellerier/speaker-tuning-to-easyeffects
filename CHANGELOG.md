@@ -140,7 +140,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ASUS Zenbook 14 OLED (UM3402YAR)
   ([#168](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/168)),
   ThinkPad P14s Gen 7 AMD (21X0)
-  ([#171](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/171)).
+  ([#171](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/171)),
+  ThinkPad T14 Gen 5 (21MD)
+  ([#172](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/172)).
 
 ### Fixed
 
